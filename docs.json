@@ -126,7 +126,8 @@
               "api/hono/routes",
               "api/hono/middlewares",
               "api/hono/database",
-              "api/hono/auth"
+              "api/hono/auth",
+              "api/hono/utils"
             ]
           }
         ]

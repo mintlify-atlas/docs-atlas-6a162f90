@@ -1,0 +1,454 @@
+---
+title: "Hono utilities"
+description: "Utility functions and helpers in the Hono application"
+---
+
+This page documents utility functions available in the Hono application's `src/core/utils/` directory.
+
+## Converter utilities
+
+File: `apps/hono/src/core/utils/converter.ts`
+
+### base64ToUint8Array
+
+Converts a base64 encoded string to a Uint8Array. Handles URL-safe base64 encoding by replacing '-' with '+' and '_' with '/'. Adds necessary padding if missing.
+
+<ParamField path="base64String" type="string" required>
+  The base64 encoded string to convert
+</ParamField>
+
+**Returns:** `Uint8Array` representing the decoded data
+
+```typescript apps/hono/src/core/utils/converter.ts
+export function base64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat(
+    (4 - (base64String.length % 4)) % 4
+  );
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+```
+
+**Example usage:**
+
+```typescript
+const base64Image = "iVBORw0KGgoAAAANSUhEUgAAAAUA...";
+const imageBytes = base64ToUint8Array(base64Image);
+const blob = new Blob([imageBytes], { type: 'image/png' });
+```
+
+### fileToDataUri
+
+Converts a File object to a data URI.
+
+<ParamField path="file" type="File" required>
+  The File object to convert
+</ParamField>
+
+**Returns:** `Promise<string>` - A data URI representing the file
+
+```typescript apps/hono/src/core/utils/converter.ts
+export async function fileToDataUri(file: File): Promise<string> {
+  const arrayBuffer = await file.arrayBuffer();
+  const uint8Array = new Uint8Array(arrayBuffer);
+  
+  let binaryString = "";
+  for (const byte of uint8Array) {
+    binaryString += String.fromCharCode(byte);
+  }
+  
+  const base64String = btoa(binaryString);
+  const mimeType = file.type || "application/octet-stream";
+  return `data:${mimeType};base64,${base64String}`;
+}
+```
+
+**Example usage:**
+
+```typescript
+const file = new File(["hello"], "example.txt", { type: "text/plain" });
+const dataUri = await fileToDataUri(file);
+console.log(dataUri); // data:text/plain;base64,aGVsbG8=
+```
+
+---
+
+## Network utilities
+
+File: `apps/hono/src/core/utils/net.ts`
+
+### getClientIpAddress
+
+Get the client IP address from request headers. Checks multiple header sources in priority order.
+
+<ParamField path="headers" type="Headers" required>
+  The request headers object
+</ParamField>
+
+**Returns:** `string | null` - The client IP address or null if not found
+
+**Header priority:**
+1. `cf-connecting-ip` (Cloudflare)
+2. `x-forwarded-for` (most common)
+3. `x-real-ip` (Nginx)
+4. `x-client-ip` (load balancers)
+5. `forwarded` (RFC 7239 standard)
+
+```typescript apps/hono/src/core/utils/net.ts
+export function getClientIpAddress(headers: Headers): string | null {
+  const cfConnectingIp = headers.get("cf-connecting-ip");
+  if (cfConnectingIp) return cfConnectingIp;
+
+  const xForwardedFor = headers.get("x-forwarded-for");
+  if (xForwardedFor) return xForwardedFor.split(",")[0].trim();
+
+  const xRealIp = headers.get("x-real-ip");
+  if (xRealIp) return xRealIp;
+
+  const xClientIp = headers.get("x-client-ip");
+  if (xClientIp) return xClientIp;
+
+  const forwarded = headers.get("forwarded");
+  if (forwarded) {
+    const match = forwarded.match(/for=([^;,\s]+)/);
+    if (match?.[1]) return match[1];
+  }
+
+  return null;
+}
+```
+
+**Example usage:**
+
+```typescript
+app.get("/api/location", (c) => {
+  const clientIp = getClientIpAddress(c.req.raw.headers);
+  return c.json({ ip: clientIp });
+});
+```
+
+### getClientIpAddressFromContext
+
+Get the client IP address from Hono context using runtime-specific connection info.
+
+<ParamField path="c" type="Context" required>
+  The Hono context object
+</ParamField>
+
+**Returns:** `Promise<string | null>` - The client IP address or null if not found
+
+```typescript apps/hono/src/core/utils/net.ts
+export async function getClientIpAddressFromContext<
+  E extends Env,
+  P extends string,
+  I extends Input,
+>(c: Context<E, P, I>): Promise<string | null> {
+  const runtime = getRuntimeKey();
+  let connInfo: ConnInfo | null = null;
+
+  if (runtime === "node") {
+    const { getConnInfo } = await import("@hono/node-server/conninfo");
+    connInfo = getConnInfo(c);
+  } else {
+    const { getConnInfo } = await import("hono/bun");
+    connInfo = getConnInfo(c);
+  }
+
+  return connInfo?.remote.address || null;
+}
+```
+
+**Example usage:**
+
+```typescript
+import { getClientIpAddressFromContext } from "@/core/utils/net.js";
+
+app.use("*", async (c, next) => {
+  const ip = await getClientIpAddressFromContext(c);
+  c.set("clientIp", ip);
+  await next();
+});
+```
+
+### ipAddressHeaders
+
+Constant object containing IP address header names.
+
+```typescript apps/hono/src/core/utils/net.ts
+export const ipAddressHeaders = {
+  cfConnectingIp: "cf-connecting-ip",
+  xForwardedFor: "x-forwarded-for",
+  xRealIp: "x-real-ip",
+  xClientIp: "x-client-ip",
+  forwarded: "forwarded",
+} as const;
+```
+
+---
+
+## Telemetry utilities
+
+File: `apps/hono/src/core/utils/telemetry.ts`
+
+These utilities help with OpenTelemetry tracing and span management.
+
+### getTracer
+
+Get a tracer instance, optionally disabling tracing.
+
+<ParamField path="isEnabled" type="boolean" default="false">
+  Whether tracing is enabled
+</ParamField>
+
+<ParamField path="tracer" type="Tracer">
+  Optional tracer to use instead of the default
+</ParamField>
+
+**Returns:** `Tracer` - A tracer instance or noop tracer
+
+```typescript apps/hono/src/core/utils/telemetry.ts
+export function getTracer({
+  isEnabled = false,
+  tracer,
+}: {
+  isEnabled?: boolean;
+  tracer?: Tracer;
+} = {}): Tracer {
+  if (!isEnabled) return noopTracer;
+  if (tracer) return tracer;
+  return trace.getTracer(SERVICE_NAME);
+}
+```
+
+### recordSpan
+
+Wraps a function with a tracer span. Automatically handles errors and span lifecycle.
+
+<ParamField path="name" type="string" required>
+  The name of the span
+</ParamField>
+
+<ParamField path="tracer" type="Tracer" required>
+  The tracer to use
+</ParamField>
+
+<ParamField path="attributes" type="Attributes" required>
+  The attributes to set on the span
+</ParamField>
+
+<ParamField path="fn" type="(span: Span) => Promise<T>" required>
+  The async function to wrap
+</ParamField>
+
+<ParamField path="endWhenDone" type="boolean" default="true">
+  Whether to end the span when the function completes
+</ParamField>
+
+**Returns:** `Promise<T>` - The result of the wrapped function
+
+```typescript apps/hono/src/core/utils/telemetry.ts
+export function recordSpan<T>({
+  name,
+  tracer,
+  attributes,
+  fn,
+  endWhenDone = true,
+}: {
+  name: string;
+  tracer: Tracer;
+  attributes: Attributes;
+  fn: (span: Span) => Promise<T>;
+  endWhenDone?: boolean;
+}) {
+  return tracer.startActiveSpan(name, { attributes }, async (span) => {
+    try {
+      const result = await fn(span);
+      
+      if (endWhenDone) {
+        span.setStatus({ code: SpanStatusCode.OK });
+        span.end();
+      }
+      
+      return result;
+    } catch (error) {
+      // Record exception and set error status
+      if (error instanceof Error) {
+        span.recordException({
+          name: error.name,
+          message: error.message,
+          stack: error.stack ?? "",
+        });
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: error.message,
+        });
+      } else {
+        span.setStatus({ code: SpanStatusCode.ERROR });
+      }
+      
+      span.end();
+      throw error;
+    }
+  });
+}
+```
+
+**Example usage:**
+
+```typescript
+import { trace } from "@opentelemetry/api";
+import { recordSpan } from "@/core/utils/telemetry.js";
+
+const result = await recordSpan({
+  name: "database.query.users",
+  tracer: trace.getTracer("api"),
+  attributes: {
+    "db.operation": "select",
+    "db.table": "users",
+  },
+  fn: async (span) => {
+    span.addEvent("Starting query");
+    const users = await db.select().from(usersTable);
+    span.setAttribute("result.count", users.length);
+    return users;
+  },
+});
+```
+
+### flattenAttributes
+
+Recursively flattens nested objects for trace attributes. Converts complex objects into flat key-value pairs suitable for OpenTelemetry.
+
+<ParamField path="obj" type="unknown" required>
+  The object to flatten
+</ParamField>
+
+<ParamField path="config.prefix" type="string" default="">
+  Prefix for attribute keys
+</ParamField>
+
+<ParamField path="config.maxDepth" type="number" default="3">
+  Maximum nesting depth to flatten
+</ParamField>
+
+**Returns:** `Record<string, string>` - Flattened attributes
+
+```typescript apps/hono/src/core/utils/telemetry.ts
+const attributes = flattenAttributes({
+  user: {
+    id: 123,
+    name: "John",
+    profile: {
+      email: "john@example.com",
+      age: 30,
+    },
+  },
+  metadata: {
+    items: ["a", "b", "c"],
+  },
+});
+
+// Result:
+// {
+//   "user.id": "123",
+//   "user.name": "John",
+//   "user.profile.email": "john@example.com",
+//   "user.profile.age": "30",
+//   "metadata.items.0": "a",
+//   "metadata.items.1": "b",
+//   "metadata.items.2": "c"
+// }
+```
+
+### flattenAttributesV2
+
+Alternative flattening implementation that handles OpenTelemetry AttributeValue types more strictly.
+
+<ParamField path="obj" type="Record<string, unknown>" required>
+  The object to flatten
+</ParamField>
+
+<ParamField path="prefix" type="string" default="">
+  Prefix for attribute keys
+</ParamField>
+
+**Returns:** `Record<string, AttributeValue>` - Flattened attributes with proper types
+
+```typescript apps/hono/src/core/utils/telemetry.ts
+const attributes = flattenAttributesV2({
+  request: {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    tags: ["api", "v1"],
+  },
+});
+
+// Result handles arrays and nested objects properly for OTel
+```
+
+### noopTracer
+
+A no-operation tracer that does nothing. Useful for disabling tracing without changing code.
+
+```typescript apps/hono/src/core/utils/telemetry.ts
+export const noopTracer: Tracer = {
+  startSpan() { return noopSpan; },
+  startActiveSpan(_, arg1, arg2, arg3) {
+    if (typeof arg1 === "function") return arg1(noopSpan);
+    if (typeof arg2 === "function") return arg2(noopSpan);
+    if (typeof arg3 === "function") return arg3(noopSpan);
+  },
+};
+```
+
+---
+
+## Logger utility
+
+File: `apps/hono/src/core/utils/logger.ts`
+
+The Hono app includes its own logger implementation that integrates with OpenTelemetry.
+
+```typescript apps/hono/src/core/utils/logger.ts
+import { Logger as CoreLogger } from "@workspace/core/utils/logger";
+import { logs } from "@opentelemetry/api-logs";
+
+export const logger = new Logger({
+  loggerProvider: logs.getLoggerProvider(),
+  // ... configuration
+});
+```
+
+The logger supports:
+- **Log levels**: TRACE, DEBUG, INFO, WARN, ERROR, FATAL
+- **Structured logging**: Log objects with attributes
+- **OpenTelemetry integration**: Automatic log export to observability backend
+- **Colorized console output**: Different colors for each log level
+
+See the [Logging documentation](/observability/logging) for detailed usage examples.
+
+---
+
+## Related documentation
+
+<CardGroup cols={2}>
+  <Card title="Observability tracing" icon="diagram-project" href="/observability/tracing">
+    Learn about distributed tracing with OpenTelemetry
+  </Card>
+  <Card title="Core package utils" icon="toolbox" href="/api/core/utils">
+    Utilities in the shared core package
+  </Card>
+  <Card title="Authentication middleware" icon="shield" href="/api/hono/middlewares">
+    Middleware using network utilities
+  </Card>
+  <Card title="Error handling" icon="triangle-exclamation" href="/hono/error-handling">
+    How errors are handled in the Hono app
+  </Card>
+</CardGroup>
