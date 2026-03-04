@@ -1,0 +1,140 @@
+{
+  "projectType": "framework",
+  "projectName": "BE Monorepo",
+  "projectDescription": "A production-ready Hono 4 monorepo template with authentication, database, and observability built-in",
+  "theme": "aspen",
+  "primaryColor": "#4595db",
+  "lightColor": "#5ebf9e",
+  "darkColor": "#0494dc",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "project-structure"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/monorepo-architecture",
+              "concepts/environment-variables",
+              "concepts/typescript-config"
+            ]
+          },
+          {
+            "group": "Backend (Hono)",
+            "pages": [
+              "hono/setup",
+              "hono/api-routes",
+              "hono/middlewares",
+              "hono/error-handling",
+              "hono/openapi"
+            ]
+          },
+          {
+            "group": "Database",
+            "pages": [
+              "database/schema-design",
+              "database/migrations",
+              "database/drizzle-orm",
+              "database/seeding"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "pages": [
+              "auth/setup",
+              "auth/user-management",
+              "auth/session-handling"
+            ]
+          },
+          {
+            "group": "Observability",
+            "pages": [
+              "observability/overview",
+              "observability/logging",
+              "observability/tracing",
+              "observability/metrics",
+              "observability/grafana-setup"
+            ]
+          },
+          {
+            "group": "Packages",
+            "pages": [
+              "packages/core",
+              "packages/typescript-config"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/scripts",
+              "development/testing",
+              "development/upgrading-dependencies",
+              "development/changesets"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/production-build",
+              "deployment/ci-cd"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core Package",
+            "pages": [
+              "api/core/apis",
+              "api/core/constants",
+              "api/core/services",
+              "api/core/types",
+              "api/core/utils"
+            ]
+          },
+          {
+            "group": "Hono App",
+            "pages": [
+              "api/hono/routes",
+              "api/hono/middlewares",
+              "api/hono/database",
+              "api/hono/auth"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Hono 4 framework with OpenAPI documentation",
+    "Better Auth authentication system",
+    "Drizzle ORM with PostgreSQL",
+    "OpenTelemetry observability with Grafana stack",
+    "Monorepo structure with shared packages",
+    "Rate limiting and security middleware",
+    "TypeScript throughout with strict typing",
+    "Bun runtime support"
+  ],
+  "publicApiSurface": [
+    "@workspace/core/apis",
+    "@workspace/core/constants",
+    "@workspace/core/services",
+    "@workspace/core/types",
+    "@workspace/core/utils",
+    "@workspace/hono auth routes",
+    "@workspace/hono OpenAPI endpoints",
+    "Database schema and migrations",
+    "Better Auth configuration"
+  ]
+}
