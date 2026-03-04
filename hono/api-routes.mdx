@@ -1,0 +1,226 @@
+---
+title: API Routes
+description: Route organization and OpenAPIHono usage patterns
+---
+
+The Hono app uses `@hono/zod-openapi` for type-safe API routes with automatic OpenAPI documentation generation.
+
+## Route Organization
+
+Routes are organized in `src/routes/` directory:
+
+```
+src/routes/
+├── index.ts          # Main routes registry
+├── auth.ts           # BetterAuth routes
+├── llms-docs.ts      # LLM documentation routes
+└── middlewares/      # Custom middleware
+```
+
+## Main Routes Registry
+
+All routes are registered in `src/routes/index.ts:9`:
+
+```typescript
+import type { OpenAPIHono } from "@hono/zod-openapi";
+import { Scalar } from "@scalar/hono-api-reference";
+import { authRoutes } from "@/routes/auth.js";
+import { llmsDocsRoutes } from "@/routes/llms-docs.js";
+
+export async function routes(
+  app: OpenAPIHono<{
+    Variables: Variables;
+  }>
+) {
+  // OpenAPI documentation
+  app.doc("/openapi", {
+    openapi: "3.1.0",
+    info: {
+      title: ENV.APP_TITLE,
+      version: `v${SERVICE_VERSION}`,
+      description: "API documentation for the Hono app",
+    },
+    servers: [
+      {
+        url: "http://localhost:3333",
+        description: "Local server",
+      },
+    ],
+  });
+
+  // Scalar API docs UI
+  app.get(
+    "/openapi/docs",
+    Scalar({
+      theme: "elysiajs",
+      pageTitle: ENV.APP_TITLE,
+      sources: [
+        {
+          title: ENV.APP_TITLE,
+          url: "/openapi",
+        },
+        {
+          url: "/api/auth/open-api/generate-schema",
+          title: `${ENV.APP_TITLE} (Auth)`,
+        },
+      ],
+    })
+  );
+
+  // Register route modules
+  authRoutes(app);
+  await llmsDocsRoutes(app);
+}
+```
+
+## OpenAPIHono Usage
+
+The app instance is created in `src/app.ts:25`:
+
+```typescript
+import { OpenAPIHono } from "@hono/zod-openapi";
+import type { Variables } from "@/core/types/hono.js";
+
+const app = new OpenAPIHono<{
+  Variables: Variables;
+}>();
+```
+
+## Authentication Routes
+
+BetterAuth routes are registered in `src/routes/auth.ts:5`:
+
+```typescript
+import type { OpenAPIHono } from "@hono/zod-openapi";
+import { auth } from "@/auth/libs/index.js";
+
+export function authRoutes(
+  app: OpenAPIHono<{
+    Variables: Variables;
+  }>
+) {
+  // BetterAuth handler for all auth endpoints
+  app.on(["POST", "GET"], "/api/auth/**", (c) => auth.handler(c.req.raw));
+}
+```
+
+This handles all authentication endpoints under `/api/auth/*`.
+
+## LLM Documentation Routes
+
+Example of defining OpenAPI routes with Zod schemas in `src/routes/llms-docs.ts:40`:
+
+```typescript
+import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+
+app.openapi(
+  createRoute({
+    method: "get",
+    path: "/llms-docs",
+    summary: "LLMs Docs",
+    description: "Get the combined content of the docs folder.",
+    responses: {
+      200: {
+        description: "Successful get the combined content of the docs",
+        content: {
+          "application/json": {
+            schema: z.object({
+              text: z.string().openapi({
+                description: "The generated text",
+              }),
+              length: z.number().openapi({
+                description: "The length of the generated text",
+              }),
+              tokens: z.number().openapi({
+                description: "The number of tokens in the generated text",
+              }),
+            }),
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    // Handler implementation
+    const contentDir = join(process.cwd(), "./docs");
+    const files = await getAllFiles(contentDir);
+    
+    let fullContent = "";
+    for (const file of files) {
+      const fileContent = await readFile(file, "utf-8");
+      fullContent += fileContent + "\n\n";
+    }
+    
+    return c.json({
+      text: fullContent,
+      length: fullContent.length,
+      tokens: fullContent.length / 4,
+    });
+  }
+);
+```
+
+## LLMs.txt Route
+
+The app exposes OpenAPI docs as markdown for LLMs at `/llms.txt` (see `src/routes/llms-docs.ts:140`):
+
+```typescript
+import { createMarkdownFromOpenApi } from "@scalar/openapi-to-markdown";
+
+const openapiObject = app.getOpenAPI31Document({
+  openapi: "3.1.0",
+  info: {
+    title: ENV.APP_TITLE,
+    version: `v${SERVICE_VERSION}`,
+  },
+});
+
+const markdown = await createMarkdownFromOpenApi(
+  JSON.stringify(openapiObject)
+);
+
+app.openapi(
+  createRoute({
+    method: "get",
+    path: "/llms.txt",
+    summary: "OpenAPI docs",
+    description: "Markdown version of the OpenAPI docs, which can be used for LLMs.",
+    responses: {
+      200: {
+        description: "Successful get the markdown version of the OpenAPI docs",
+        content: {
+          "text/plain": {
+            schema: z.string().openapi({
+              description: "The markdown version of the OpenAPI docs",
+            }),
+          },
+        },
+      },
+    },
+  }),
+  (c) => c.text(markdown)
+);
+```
+
+## Type Safety
+
+All routes are fully typed using the `Variables` type defined in `src/core/types/hono.ts:11`:
+
+```typescript
+import type { RequestIdVariables } from "hono/request-id";
+import type { TimingVariables } from "hono/timing";
+import type { auth } from "@/auth/libs/index.js";
+
+interface AuthVariables {
+  session: typeof auth.$Infer.Session.session | null;
+  user: typeof auth.$Infer.Session.user | null;
+}
+
+export type Variables = RequestIdVariables & TimingVariables & AuthVariables;
+```
+
+This provides type-safe access to:
+- `c.get("requestId")` - Request ID
+- `c.get("user")` - Authenticated user
+- `c.get("session")` - Auth session
+- Timing information

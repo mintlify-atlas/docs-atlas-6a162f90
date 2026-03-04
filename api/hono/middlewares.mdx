@@ -1,0 +1,413 @@
+---
+title: Middlewares
+description: Middleware functions for request processing, authentication, rate limiting, and observability
+---
+
+## Overview
+
+The Hono app uses various middleware layers to handle cross-cutting concerns like authentication, rate limiting, metrics collection, and request/response logging.
+
+## Authentication Middleware
+
+**File:** `src/routes/middlewares/auth.ts`
+
+### authContextMiddleware
+
+Middleware that retrieves the current session and user from Better Auth and stores them in the request context.
+
+**File:** `src/routes/middlewares/auth.ts:7-18`
+
+```typescript
+export function authContextMiddleware(): MiddlewareHandler
+```
+
+**Behavior:**
+1. Extracts session information from request headers
+2. Calls Better Auth API to validate and retrieve session
+3. Sets `user` and `session` in context:
+   - If authenticated: Sets actual user and session objects
+   - If not authenticated: Sets both to `null`
+4. Continues to next middleware
+
+**Context Variables:**
+- `c.get('user')` - Current authenticated user or `null`
+- `c.get('session')` - Current session or `null`
+
+**Usage:**
+
+```typescript
+import { authContextMiddleware } from '@/routes/middlewares/auth';
+
+app.use('*', authContextMiddleware());
+```
+
+**Note:** This middleware is automatically applied globally in `src/app.ts:53`
+
+## Rate Limiting Middleware
+
+**File:** `src/routes/middlewares/rate-limit/index.ts`
+
+### rateLimit
+
+Database-backed rate limiting middleware that restricts request frequency per client.
+
+**File:** `src/routes/middlewares/rate-limit/index.ts:15-45`
+
+```typescript
+export const rateLimit = rateLimiter<{
+  Variables: Variables;
+}>({
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  limit: RATE_LIMIT_LIMIT,
+  standardHeaders: "draft-6",
+  keyGenerator: async (c) => { /* ... */ },
+  message: (c) => { /* ... */ },
+  store: new DbStore(),
+});
+```
+
+**Configuration:**
+
+```typescript
+const RATE_LIMIT_WINDOW_MS = 15_000; // 15 seconds
+const RATE_LIMIT_LIMIT = 15; // 15 requests per window
+// Average: 10 requests per second
+```
+
+**Key Generation Strategy:**
+
+1. **Authenticated Users:** Uses session ID
+   ```
+   session:<session_id>
+   ```
+
+2. **Anonymous Users:** Uses IP address
+   ```
+   ip:<ip_address>
+   ```
+
+**IP Address Detection:**
+- First tries to extract from headers (proxy headers, CloudFlare, etc.)
+- Falls back to IP from Hono context
+- Uses `"anonymous"` if no IP can be determined
+
+**Response Headers:**
+
+Follows draft-6 specification with `RateLimit-*` headers:
+- `RateLimit-Limit` - Maximum requests allowed in window
+- `RateLimit-Remaining` - Requests remaining in current window
+- `RateLimit-Reset` - Time when the window resets
+
+**Error Messages:**
+- Authenticated: `"Rate limit exceeded for your account. Please try again later."`
+- Anonymous: `"Rate limit exceeded. Please try again later."`
+
+**Storage:** Uses PostgreSQL database via `DbStore` (see Database section below)
+
+**Usage:**
+
+```typescript
+import { rateLimit } from '@/routes/middlewares/rate-limit';
+
+app.use('/api/*', rateLimit);
+```
+
+### DbStore
+
+**File:** `src/routes/middlewares/rate-limit/store.ts`
+
+PostgreSQL-backed store for rate limit hit counts using Drizzle ORM.
+
+**File:** `src/routes/middlewares/rate-limit/store.ts:18-22`
+
+```typescript
+export class DbStore<
+  E extends Env = Env,
+  P extends string = string,
+  I extends Input = Input,
+> implements Store<E, P, I>
+```
+
+**Methods:**
+
+#### init(options)
+
+**File:** `src/routes/middlewares/rate-limit/store.ts:34-37`
+
+Initializes the store with rate limiter configuration.
+
+```typescript
+init(options: HonoConfigType<E, P, I> | WSConfigType<E, P, I>): void
+```
+
+#### get(key)
+
+**File:** `src/routes/middlewares/rate-limit/store.ts:48-83`
+
+Retrieves a client's current hit count and reset time.
+
+```typescript
+async get(key: string): Promise<ClientRateLimitInfo | undefined>
+```
+
+**Returns:**
+```typescript
+{
+  totalHits: number;   // Current hit count
+  resetTime: Date;     // When the window resets
+}
+```
+
+**Behavior:**
+- Queries database for rate limit record by key
+- Returns `undefined` if record doesn't exist
+- Automatically deletes expired records (outside window)
+- Calculates reset time based on window duration
+
+#### increment(key)
+
+**File:** `src/routes/middlewares/rate-limit/store.ts:94-150`
+
+Increments a client's hit counter.
+
+```typescript
+async increment(key: string): Promise<ClientRateLimitInfo>
+```
+
+**Behavior:**
+1. Checks for existing record
+2. If exists and not expired: Increments count
+3. If exists and expired: Resets count to 1
+4. If doesn't exist: Creates new record with count of 1
+5. Updates `lastRequest` timestamp
+6. Returns updated hit count and reset time
+
+**Fallback:** Returns conservative estimate on error (count: 1)
+
+#### decrement(key)
+
+**File:** `src/routes/middlewares/rate-limit/store.ts:159-172`
+
+Decrements a client's hit counter (used when request is rejected).
+
+```typescript
+async decrement(key: string): Promise<void>
+```
+
+**Behavior:**
+- Uses SQL `GREATEST(0, count - 1)` to prevent negative counts
+- Updates `lastRequest` timestamp
+- Silently fails on error (logs error)
+
+#### resetKey(key)
+
+**File:** `src/routes/middlewares/rate-limit/store.ts:181-187`
+
+Resets a specific client's hit counter.
+
+```typescript
+async resetKey(key: string): Promise<void>
+```
+
+**Behavior:** Deletes the record from database
+
+#### resetAll()
+
+**File:** `src/routes/middlewares/rate-limit/store.ts:194-200`
+
+Resets all clients' hit counters.
+
+```typescript
+async resetAll(): Promise<void>
+```
+
+**Behavior:** Deletes all records from `rate_limit` table
+
+#### shutdown()
+
+**File:** `src/routes/middlewares/rate-limit/store.ts:208-210`
+
+Cleanup method for interface compatibility.
+
+```typescript
+shutdown(): void
+```
+
+**Note:** No-op for database store (no cleanup needed)
+
+## Metrics Middleware
+
+**File:** `src/routes/middlewares/metrics.ts`
+
+### metricsMiddleware
+
+**DEPRECATED:** The `@hono/otel` middleware already provides built-in metrics.
+
+**File:** `src/routes/middlewares/metrics.ts:49-83`
+
+Records HTTP request metrics using OpenTelemetry.
+
+```typescript
+export function metricsMiddleware(): MiddlewareHandler
+```
+
+**Metrics Collected:**
+
+#### http_request_duration_metric
+
+Histogram of request response times in milliseconds.
+
+**File:** `src/routes/middlewares/metrics.ts:13-20`
+
+```typescript
+{
+  description: "Duration of HTTP requests in milliseconds",
+  unit: "ms",
+  valueType: ValueType.INT
+}
+```
+
+**Labels:**
+- `method` - HTTP method (GET, POST, etc.)
+- `route` - Request route/path
+- `status_code` - HTTP status code (200, 404, etc.)
+- `status_class` - Status code class (2xx, 4xx, etc.)
+
+#### http_requests_total_metric
+
+Counter of total HTTP requests.
+
+**File:** `src/routes/middlewares/metrics.ts:23-25`
+
+```typescript
+{
+  description: "Total number of HTTP requests"
+}
+```
+
+**Labels:**
+- `method` - HTTP method
+- `route` - Request route/path
+
+**Implementation:**
+1. Records start time using `performance.now()`
+2. Increments request counter with method and route labels
+3. Executes next middleware
+4. Calculates response time
+5. Records response time histogram with all labels
+
+**Usage:**
+
+```typescript
+import { metricsMiddleware } from '@/routes/middleware/metrics';
+
+app.use('*', metricsMiddleware());
+```
+
+**Note:** Prefer using the built-in `@hono/otel` middleware instead (configured in `src/app.ts:35-38`)
+
+## Request/Response Logger
+
+**File:** `src/routes/middlewares/req-res-logger.ts`
+
+### reqResLogger
+
+Development middleware for logging request and response bodies.
+
+**File:** `src/routes/middlewares/req-res-logger.ts:23-55`
+
+```typescript
+export function reqResLogger(): MiddlewareHandler
+```
+
+**Behavior:**
+
+1. **Request Logging:**
+   - Clones the request to read body without consuming it
+   - Logs incoming request body with `<-- [Incoming Body]` prefix
+   - Attempts to prettify JSON for readability
+   - Logs raw text if not valid JSON
+
+2. **Response Logging:**
+   - Clones the response after handler execution
+   - Logs outgoing response body with `--> [Outgoing Body]` prefix
+   - Attempts to prettify JSON for readability
+   - Logs raw text if not valid JSON
+
+**Helper Function:**
+
+**File:** `src/routes/middlewares/req-res-logger.ts:8-16`
+
+```typescript
+function tryPrettifyJson(jsonString: string): string
+```
+
+Attempts to parse and prettify JSON with 2-space indentation. Returns original string if parsing fails.
+
+**Usage:**
+
+```typescript
+import { reqResLogger } from '@/routes/middlewares/req-res-logger';
+
+app.use('*', reqResLogger());
+```
+
+**Note:** Disabled by default in production. Enable by uncommenting in `src/app.ts:44`
+
+**Use Cases:**
+- Debugging API payloads
+- Monitoring request/response structure
+- Development troubleshooting
+
+## Global Middleware Stack
+
+**File:** `src/app.ts:29-65`
+
+The following middleware is applied globally to all routes in order:
+
+1. **`httpInstrumentationMiddleware`** - OpenTelemetry instrumentation
+2. **`contextStorage`** - AsyncLocalStorage for context
+3. **`loggerMiddleware`** - Request logging
+4. **`cors`** - Cross-origin resource sharing
+5. **`requestId`** - Unique request ID generation
+6. **`authContextMiddleware`** - Authentication context
+7. **`timing`** - Server-Timing header
+8. **`timeout`** - Request timeout (15 seconds)
+9. **`languageDetector`** - Language preference detection
+10. **`csrf`** - CSRF protection
+11. **`secureHeaders`** - Security headers
+12. **`prettyJSON`** - JSON pretty printing
+
+**Configuration Example:**
+
+```typescript
+app.use(
+  "*",
+  httpInstrumentationMiddleware({
+    serviceName: SERVICE_NAME,
+    serviceVersion: SERVICE_VERSION,
+  }),
+  contextStorage(),
+  loggerMiddleware(),
+  cors({
+    origin: [ENV.APP_URL],
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+    exposeHeaders: ["Content-Length"],
+    credentials: true,
+  }),
+  requestId(),
+  authContextMiddleware(),
+  timing(),
+  timeout(15_000),
+  languageDetector({
+    supportedLanguages: ["en", "id"],
+    fallbackLanguage: "en",
+  }),
+  csrf({
+    origin: [ENV.APP_URL],
+  }),
+  secureHeaders(),
+  prettyJSON()
+);
+```

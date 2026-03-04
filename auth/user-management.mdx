@@ -1,0 +1,271 @@
+---
+title: User Management
+description: Handle user registration, login, and account management
+---
+
+# User Management
+
+This guide covers user registration, authentication flows, and user data management in the BE Monorepo.
+
+## User Schema
+
+The user table is defined in `src/db/schema.ts`:
+
+```typescript
+export const userTable = pgTable("user", {
+  id: text().primaryKey(),
+  name: text().notNull(),
+  email: text().notNull().unique(),
+  emailVerified: boolean().default(false).notNull(),
+  image: text(),
+  ...timestamps, // createdAt, updatedAt, deletedAt
+});
+
+export const selectUserTableSchema = createSelectSchema(userTable);
+export type UserTable = z.infer<typeof selectUserTableSchema>;
+```
+
+### User Fields
+
+- **id**: Unique text identifier (primary key)
+- **name**: User's display name (required)
+- **email**: User's email address (unique, required)
+- **emailVerified**: Email verification status (default: false)
+- **image**: Optional profile image URL
+- **timestamps**: Automatic created/updated/deleted timestamps
+
+## Account Table
+
+The account table manages authentication providers and credentials:
+
+```typescript
+export const accountTable = pgTable("account", {
+  id: text().primaryKey(),
+  accountId: text().notNull(),
+  providerId: text().notNull(),
+  userId: text()
+    .notNull()
+    .references(() => userTable.id, { onDelete: "cascade" }),
+  accessToken: text(),
+  refreshToken: text(),
+  idToken: text(),
+  accessTokenExpiresAt: timestamp(),
+  refreshTokenExpiresAt: timestamp(),
+  scope: text(),
+  password: text(), // Hashed password for email/password auth
+  ...timestamps,
+});
+```
+
+## User Registration
+
+Better Auth handles user registration through its built-in API endpoints. Users can register via:
+
+### Email and Password
+
+Clients can register by sending a POST request to `/api/auth/sign-up/email`:
+
+```typescript
+const response = await fetch('http://localhost:3333/api/auth/sign-up/email', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    email: 'user@example.com',
+    password: 'secure-password',
+    name: 'John Doe'
+  })
+});
+```
+
+### Response
+
+```json
+{
+  "user": {
+    "id": "cm5x...",
+    "email": "user@example.com",
+    "name": "John Doe",
+    "emailVerified": false,
+    "image": null,
+    "createdAt": "2026-03-04T10:00:00.000Z",
+    "updatedAt": "2026-03-04T10:00:00.000Z"
+  },
+  "session": {
+    "id": "ses_...",
+    "userId": "cm5x...",
+    "expiresAt": "2026-04-04T10:00:00.000Z",
+    "token": "eyJhbG..."
+  }
+}
+```
+
+## User Login
+
+Authenticate existing users through the Better Auth API:
+
+```typescript
+const response = await fetch('http://localhost:3333/api/auth/sign-in/email', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    email: 'user@example.com',
+    password: 'secure-password'
+  })
+});
+```
+
+### Authentication Flow
+
+1. Client sends credentials to `/api/auth/sign-in/email`
+2. Better Auth validates credentials against hashed password in account table
+3. On success, creates a new session with token
+4. Returns user data and session token
+5. Client stores session token (typically in cookies)
+
+## Password Handling
+
+Better Auth automatically handles password security:
+
+- **Hashing**: Passwords are hashed using bcrypt before storage
+- **Validation**: Password strength can be configured
+- **Storage**: Hashed passwords stored in `account.password` field
+- **Comparison**: Secure comparison during authentication
+
+### Password Security
+
+```typescript
+// Better Auth handles this automatically
+// Passwords are:
+// 1. Hashed with bcrypt
+// 2. Stored in account.password
+// 3. Never returned in API responses
+// 4. Compared securely during login
+```
+
+## User Roles and Permissions
+
+The current implementation uses a simple user model without built-in roles. To add role-based access control:
+
+### Extend User Schema
+
+```typescript
+export const userTable = pgTable("user", {
+  id: text().primaryKey(),
+  name: text().notNull(),
+  email: text().notNull().unique(),
+  emailVerified: boolean().default(false).notNull(),
+  image: text(),
+  role: text().default("user").notNull(), // Add role field
+  ...timestamps,
+});
+```
+
+### Role-Based Middleware
+
+```typescript
+import type { MiddlewareHandler } from "hono";
+
+export function requireRole(role: string): MiddlewareHandler {
+  return async (c, next) => {
+    const user = c.get("user");
+    
+    if (!user) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+    
+    if (user.role !== role) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
+    
+    return next();
+  };
+}
+```
+
+## Verification Table
+
+Email verification tokens are managed in a separate table:
+
+```typescript
+export const verificationTable = pgTable("verification", {
+  id: text().primaryKey(),
+  identifier: text().notNull(), // Email or phone
+  value: text().notNull(),      // Verification token
+  expiresAt: timestamp().notNull(),
+  ...timestamps,
+});
+```
+
+## User Operations
+
+### Get Current User
+
+```typescript
+app.get("/api/me", authContextMiddleware(), async (c) => {
+  const user = c.get("user");
+  
+  if (!user) {
+    return c.json({ error: "Not authenticated" }, 401);
+  }
+  
+  return c.json({ user });
+});
+```
+
+### Update User Profile
+
+```typescript
+import { db } from "@/db/index.js";
+import { userTable } from "@/db/schema.js";
+import { eq } from "drizzle-orm";
+
+app.patch("/api/me", authContextMiddleware(), async (c) => {
+  const user = c.get("user");
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  
+  const { name, image } = await c.req.json();
+  
+  const [updated] = await db
+    .update(userTable)
+    .set({ name, image, updatedAt: new Date() })
+    .where(eq(userTable.id, user.id))
+    .returning();
+  
+  return c.json({ user: updated });
+});
+```
+
+### Delete User
+
+```typescript
+app.delete("/api/me", authContextMiddleware(), async (c) => {
+  const user = c.get("user");
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  
+  // Soft delete
+  await db
+    .update(userTable)
+    .set({ deletedAt: new Date() })
+    .where(eq(userTable.id, user.id));
+  
+  return c.json({ success: true });
+});
+```
+
+## API Endpoints
+
+Better Auth provides these endpoints automatically:
+
+- `POST /api/auth/sign-up/email` - Register new user
+- `POST /api/auth/sign-in/email` - Login user
+- `POST /api/auth/sign-out` - Logout user
+- `GET /api/auth/session` - Get current session
+- `POST /api/auth/verify-email` - Verify email
+- `POST /api/auth/reset-password` - Reset password
+
+View full API documentation at `/api/auth/docs`.
+
+## Next Steps
+
+- [Session Handling](/auth/session-handling) - Manage user sessions
+- [Authentication Setup](/auth/setup) - Configure Better Auth

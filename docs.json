@@ -1,122 +1,136 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "BE Monorepo",
+  "theme": "aspen",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#4595db",
+    "light": "#5ebf9e",
+    "dark": "#0494dc"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "https://media.brand.dev/58ac76ea-3127-43fe-90dd-bda346992855.png",
+  "logo": {
+    "light": "https://media.brand.dev/277d2da5-701e-40c3-ae2b-d016d87186f7.svg",
+    "dark": "https://media.brand.dev/58ac76ea-3127-43fe-90dd-bda346992855.png"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/rifandani/be-monorepo"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/rifandani/be-monorepo"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
             "pages": [
-              "index",
+              "introduction",
               "quickstart",
-              "development"
+              "project-structure"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Core Concepts",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "concepts/monorepo-architecture",
+              "concepts/environment-variables",
+              "concepts/typescript-config"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Backend (Hono)",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
+              "hono/setup",
+              "hono/api-routes",
+              "hono/middlewares",
+              "hono/error-handling",
+              "hono/openapi"
             ]
           },
           {
-            "group": "AI tools",
+            "group": "Database",
             "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "database/schema-design",
+              "database/migrations",
+              "database/drizzle-orm",
+              "database/seeding"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "pages": [
+              "auth/setup",
+              "auth/user-management",
+              "auth/session-handling"
+            ]
+          },
+          {
+            "group": "Observability",
+            "pages": [
+              "observability/overview",
+              "observability/logging",
+              "observability/tracing",
+              "observability/metrics",
+              "observability/grafana-setup"
+            ]
+          },
+          {
+            "group": "Packages",
+            "pages": [
+              "packages/core",
+              "packages/typescript-config"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/scripts",
+              "development/testing",
+              "development/upgrading-dependencies",
+              "development/changesets"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/production-build",
+              "deployment/ci-cd"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Core Package",
             "pages": [
-              "api-reference/introduction"
+              "api/core/apis",
+              "api/core/constants",
+              "api/core/services",
+              "api/core/types",
+              "api/core/utils"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Hono App",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/hono/routes",
+              "api/hono/middlewares",
+              "api/hono/database",
+              "api/hono/auth"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

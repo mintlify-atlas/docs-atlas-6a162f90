@@ -1,0 +1,516 @@
+---
+title: Database Seeding
+description: Populate your database with test data using drizzle-seed and custom seeding scripts
+---
+
+Database seeding populates your database with initial or test data. The BE Monorepo includes `drizzle-seed` for generating realistic test data.
+
+## Drizzle Seed
+
+The project includes `drizzle-seed` for data generation:
+
+```json
+{
+  "dependencies": {
+    "drizzle-seed": "0.3.1"
+  }
+}
+```
+
+Drizzle Seed provides:
+- Automatic data generation based on schema
+- Realistic fake data
+- Relationship handling
+- Customizable generators
+
+## Creating a Seed Script
+
+Create a seed script in `src/db/seed.ts`:
+
+```typescript
+import { db } from "./index.js";
+import { userTable, sessionTable, rateLimitTable } from "./schema.js";
+import { seed } from "drizzle-seed";
+
+// Seed the database
+async function main() {
+  console.log("Seeding database...");
+
+  await seed(db, {
+    count: 10,  // Generate 10 of each
+  });
+
+  console.log("Database seeded successfully!");
+}
+
+main()
+  .catch((error) => {
+    console.error("Seed failed:", error);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await db.$client.end();
+  });
+```
+
+### Add Seed Script to package.json
+
+```json
+{
+  "scripts": {
+    "db:seed": "dotenvx run --env-file=.env.dev -- tsx src/db/seed.ts"
+  }
+}
+```
+
+Run with:
+
+```bash
+bun run db:seed
+```
+
+## Custom Seeding Patterns
+
+### Manual User Seeding
+
+Create specific test users:
+
+```typescript
+import { db } from "./index.js";
+import { userTable } from "./schema.js";
+
+async function seedUsers() {
+  const users = await db
+    .insert(userTable)
+    .values([
+      {
+        id: "user_admin",
+        name: "Admin User",
+        email: "admin@example.com",
+        emailVerified: true,
+        image: "https://avatar.example.com/admin.jpg",
+      },
+      {
+        id: "user_test",
+        name: "Test User",
+        email: "test@example.com",
+        emailVerified: false,
+      },
+    ])
+    .returning();
+
+  console.log(`Created ${users.length} users`);
+  return users;
+}
+```
+
+### Seeding with Relationships
+
+Create users with their sessions:
+
+```typescript
+import { db } from "./index.js";
+import { userTable, sessionTable } from "./schema.js";
+
+async function seedUsersWithSessions() {
+  // Create users
+  const users = await db
+    .insert(userTable)
+    .values([
+      {
+        id: "user_1",
+        name: "Alice Smith",
+        email: "alice@example.com",
+        emailVerified: true,
+      },
+      {
+        id: "user_2",
+        name: "Bob Jones",
+        email: "bob@example.com",
+        emailVerified: true,
+      },
+    ])
+    .returning();
+
+  // Create sessions for each user
+  const sessions = [];
+  for (const user of users) {
+    const session = await db
+      .insert(sessionTable)
+      .values({
+        id: `session_${user.id}`,
+        userId: user.id,
+        token: `token_${user.id}_${Date.now()}`,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        ipAddress: "127.0.0.1",
+        userAgent: "Mozilla/5.0",
+      })
+      .returning();
+    sessions.push(session[0]);
+  }
+
+  console.log(`Created ${users.length} users with ${sessions.length} sessions`);
+}
+```
+
+### Using Faker for Realistic Data
+
+Install faker:
+
+```bash
+bun add -d @faker-js/faker
+```
+
+Generate realistic data:
+
+```typescript
+import { faker } from "@faker-js/faker";
+import { db } from "./index.js";
+import { userTable } from "./schema.js";
+
+async function seedWithFaker() {
+  const users = [];
+
+  for (let i = 0; i < 50; i++) {
+    users.push({
+      id: `user_${i}`,
+      name: faker.person.fullName(),
+      email: faker.internet.email(),
+      emailVerified: faker.datatype.boolean(),
+      image: faker.image.avatar(),
+    });
+  }
+
+  await db.insert(userTable).values(users);
+  console.log(`Created ${users.length} users with faker`);
+}
+```
+
+## Seeding Strategies
+
+### Development Seeds
+
+Consistent data for development:
+
+```typescript
+import { db } from "./index.js";
+import { userTable } from "./schema.js";
+
+// Create known test accounts
+async function seedDevelopment() {
+  await db.insert(userTable).values([
+    {
+      id: "dev_admin",
+      name: "Dev Admin",
+      email: "dev@localhost",
+      emailVerified: true,
+    },
+    {
+      id: "dev_user",
+      name: "Dev User",
+      email: "user@localhost",
+      emailVerified: false,
+    },
+  ]);
+}
+```
+
+### Testing Seeds
+
+Generate varied data for testing:
+
+```typescript
+import { faker } from "@faker-js/faker";
+import { db } from "./index.js";
+import { userTable } from "./schema.js";
+
+export async function seedForTests() {
+  // Generate diverse test data
+  const users = Array.from({ length: 100 }, (_, i) => ({
+    id: `test_user_${i}`,
+    name: faker.person.fullName(),
+    email: faker.internet.email(),
+    emailVerified: i % 3 === 0, // Mix of verified/unverified
+    image: i % 2 === 0 ? faker.image.avatar() : null, // Some with/without images
+  }));
+
+  await db.insert(userTable).values(users);
+  return users;
+}
+```
+
+### Production Seeds
+
+Minimal data required for production:
+
+```typescript
+async function seedProduction() {
+  // Only create essential system records
+  await db.insert(userTable).values({
+    id: "system",
+    name: "System",
+    email: "system@yourapp.com",
+    emailVerified: true,
+  });
+}
+```
+
+## Complete Seed Script Example
+
+Comprehensive seed script with multiple strategies:
+
+```typescript
+import { db, dbPool } from "./index.js";
+import { userTable, sessionTable, rateLimitTable } from "./schema.js";
+import { faker } from "@faker-js/faker";
+
+const ENV = process.env.NODE_ENV || "development";
+
+async function seedUsers(count: number) {
+  console.log(`Seeding ${count} users...`);
+
+  const users = Array.from({ length: count }, (_, i) => ({
+    id: `user_${i}_${Date.now()}`,
+    name: faker.person.fullName(),
+    email: faker.internet.email(),
+    emailVerified: faker.datatype.boolean(),
+    image: faker.helpers.maybe(() => faker.image.avatar(), { probability: 0.7 }),
+  }));
+
+  const inserted = await db.insert(userTable).values(users).returning();
+  console.log(`✓ Created ${inserted.length} users`);
+  return inserted;
+}
+
+async function seedSessions(users: Array<{ id: string }>) {
+  console.log(`Seeding sessions for ${users.length} users...`);
+
+  const sessions = users.flatMap((user) => {
+    // Create 0-3 sessions per user
+    const sessionCount = faker.number.int({ min: 0, max: 3 });
+    return Array.from({ length: sessionCount }, (_, i) => ({
+      id: `session_${user.id}_${i}`,
+      userId: user.id,
+      token: `token_${user.id}_${i}_${Date.now()}`,
+      expiresAt: faker.date.future(),
+      ipAddress: faker.internet.ipv4(),
+      userAgent: faker.internet.userAgent(),
+    }));
+  });
+
+  if (sessions.length > 0) {
+    const inserted = await db.insert(sessionTable).values(sessions).returning();
+    console.log(`✓ Created ${inserted.length} sessions`);
+  } else {
+    console.log(`✓ No sessions to create`);
+  }
+}
+
+async function clearDatabase() {
+  console.log("Clearing database...");
+  
+  await db.delete(sessionTable);
+  await db.delete(rateLimitTable);
+  await db.delete(userTable);
+  
+  console.log("✓ Database cleared");
+}
+
+async function main() {
+  console.log(`\nSeeding database for ${ENV} environment\n`);
+
+  try {
+    // Clear existing data
+    await clearDatabase();
+
+    // Seed based on environment
+    if (ENV === "production") {
+      // Minimal production seeds
+      await seedUsers(1);
+    } else {
+      // Development/testing seeds
+      const users = await seedUsers(50);
+      await seedSessions(users);
+    }
+
+    console.log("\n✓ Database seeding completed successfully!\n");
+  } catch (error) {
+    console.error("\n✗ Seeding failed:", error);
+    process.exit(1);
+  } finally {
+    await dbPool.end();
+  }
+}
+
+main();
+```
+
+## Testing Data Generation
+
+Generate data specifically for tests:
+
+```typescript
+// tests/helpers/seed.ts
+import { db } from "@/db/index.js";
+import { userTable } from "@/db/schema.js";
+
+export async function createTestUser(overrides = {}) {
+  const [user] = await db
+    .insert(userTable)
+    .values({
+      id: `test_${Date.now()}`,
+      name: "Test User",
+      email: `test_${Date.now()}@example.com`,
+      emailVerified: false,
+      ...overrides,
+    })
+    .returning();
+
+  return user;
+}
+
+export async function cleanupTestUsers() {
+  // Delete test users after tests
+  await db.delete(userTable).where(like(userTable.id, "test_%"));
+}
+```
+
+Use in tests:
+
+```typescript
+import { test, expect } from "bun:test";
+import { createTestUser, cleanupTestUsers } from "./helpers/seed.js";
+
+test("user creation", async () => {
+  const user = await createTestUser({
+    name: "Specific Test User",
+    emailVerified: true,
+  });
+
+  expect(user.name).toBe("Specific Test User");
+  expect(user.emailVerified).toBe(true);
+
+  // Cleanup
+  await cleanupTestUsers();
+});
+```
+
+## Best Practices
+
+### 1. Environment-Specific Seeding
+
+Different data for different environments:
+
+```typescript
+if (ENV === "production") {
+  await seedProduction();
+} else if (ENV === "test") {
+  await seedForTests();
+} else {
+  await seedDevelopment();
+}
+```
+
+### 2. Idempotent Seeds
+
+Seeds should be safely re-runnable:
+
+```typescript
+import { eq } from "drizzle-orm";
+
+async function upsertAdmin() {
+  const existing = await db
+    .select()
+    .from(userTable)
+    .where(eq(userTable.email, "admin@example.com"))
+    .limit(1);
+
+  if (existing.length > 0) {
+    console.log("Admin already exists");
+    return existing[0];
+  }
+
+  const [admin] = await db
+    .insert(userTable)
+    .values({
+      id: "admin",
+      name: "Admin",
+      email: "admin@example.com",
+      emailVerified: true,
+    })
+    .returning();
+
+  return admin;
+}
+```
+
+### 3. Transaction Safety
+
+Wrap seeds in transactions:
+
+```typescript
+async function seedInTransaction() {
+  await db.transaction(async (tx) => {
+    const users = await tx.insert(userTable).values([...]).returning();
+    await tx.insert(sessionTable).values([...]);
+    // Both succeed or both fail
+  });
+}
+```
+
+### 4. Progress Logging
+
+Log progress for large seeds:
+
+```typescript
+async function seedLarge() {
+  const total = 1000;
+  const batchSize = 100;
+
+  for (let i = 0; i < total; i += batchSize) {
+    const batch = Array.from({ length: batchSize }, (_, j) => ({ /* ... */ }));
+    await db.insert(userTable).values(batch);
+    console.log(`Progress: ${i + batchSize}/${total}`);
+  }
+}
+```
+
+### 5. Clean Up Resources
+
+Always close database connections:
+
+```typescript
+async function main() {
+  try {
+    await seedDatabase();
+  } finally {
+    await dbPool.end();
+  }
+}
+```
+
+## Running Seeds
+
+### Development
+
+```bash
+bun run db:seed
+```
+
+### Production (careful!)
+
+```bash
+# Use production environment
+NODE_ENV=production bun run db:seed
+```
+
+### Reset and Seed
+
+Combine migration reset with seeding:
+
+```bash
+# Drop and recreate schema
+bun run db:push
+# Seed fresh data
+bun run db:seed
+```

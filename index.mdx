@@ -1,97 +1,181 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "BE Monorepo Documentation"
+description: "A production-ready Hono 4 monorepo template with authentication, database, and observability built-in"
+mode: "custom"
 ---
 
-## Setting up
+<div className="relative overflow-hidden dark:bg-[#0f1117] bg-white py-20">
+  <div className="absolute inset-0 bg-gradient-to-br from-[#4595db]/10 via-transparent to-[#5ebf9e]/10"></div>
+  <div className="relative max-w-6xl mx-auto px-6">
+    <div className="grid lg:grid-cols-12 gap-12 items-center">
+      <div className="lg:col-span-7">
+        <h1 className="text-5xl lg:text-6xl font-bold dark:text-white text-gray-900 mb-6">
+          Build production-ready backends faster
+        </h1>
+        <p className="text-xl dark:text-gray-400 text-gray-600 mb-8 max-w-2xl">
+          A batteries-included Hono 4 monorepo template with authentication, database migrations, observability, and TypeScript throughout.
+        </p>
+        <div className="flex flex-wrap gap-4">
+          <a
+            href="/quickstart"
+            className="inline-flex items-center px-6 py-3 rounded-lg bg-[#4595db] text-white font-semibold hover:bg-[#3a7fc4] transition-colors"
+          >
+            Get Started
+          </a>
+          <a
+            href="/project-structure"
+            className="inline-flex items-center px-6 py-3 rounded-lg border dark:border-white/30 dark:bg-white/10 border-gray-300 bg-gray-100 dark:text-white text-gray-900 font-semibold dark:hover:bg-white/20 hover:bg-gray-200 transition-colors"
+          >
+            Explore Structure
+          </a>
+        </div>
+      </div>
+      <div className="lg:col-span-5 hidden lg:block">
+        <div className="dark:bg-[#1a1d27] bg-gray-50 rounded-2xl p-6 dark:border-[#27272a] border-gray-200 border">
+          <pre className="text-sm dark:text-gray-300 text-gray-700"><code>{`// apps/hono/src/app.ts
+import { OpenAPIHono } from "@hono/zod-openapi";
 
-Get your documentation site up and running in minutes.
+const app = new OpenAPIHono();
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+app.use("*",
+  httpInstrumentationMiddleware(),
+  contextStorage(),
+  cors(),
+  secureHeaders()
+);
 
-## Make it yours
+await routes(app);`}</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
-Design a docs site that looks great and empowers your users.
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold dark:text-white text-gray-900 mb-4">Quick Start</h2>
+  <p className="text-base dark:text-gray-400 text-gray-600 mb-8">Get your backend running in minutes</p>
+  
+  <Steps>
+    <Step title="Clone the repository">
+      Clone the BE Monorepo template to your local machine.
+      
+      ```bash
+      git clone https://github.com/rifandani/be-monorepo.git
+      cd be-monorepo
+      ```
+    </Step>
+    
+    <Step title="Install dependencies">
+      Install all dependencies using Bun package manager.
+      
+      ```bash
+      bun install
+      ```
+      
+      <Note>This template requires Bun 1.3.10 or later and Node.js 24.14.0 or later.</Note>
+    </Step>
+    
+    <Step title="Configure environment variables">
+      Copy the example environment files and configure your local development settings.
+      
+      ```bash
+      cp apps/hono/.env.example apps/hono/.env.dev
+      ```
+      
+      Update the `.env.dev` file with your database credentials and other configuration values.
+    </Step>
+    
+    <Step title="Run database migrations">
+      Set up your PostgreSQL database and run migrations.
+      
+      ```bash
+      bun hono db:push
+      ```
+    </Step>
+    
+    <Step title="Start the development server">
+      Launch the Hono backend server with hot reload.
+      
+      ```bash
+      bun hono dev
+      ```
+      
+      Your API is now running at `http://localhost:3333`. Visit `http://localhost:3333/openapi/docs` to explore the API documentation.
+    </Step>
+  </Steps>
+</div>
 
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold dark:text-white text-gray-900 mb-4">Key Features</h2>
+  <p className="text-base dark:text-gray-400 text-gray-600 mb-8">Everything you need to build production-grade backends</p>
+  
+  <CardGroup cols={2}>
+    <Card title="Hono 4 Framework" icon="bolt" href="/hono/setup">
+      Lightning-fast web framework with OpenAPI documentation built-in
+    </Card>
+    <Card title="Better Auth" icon="shield" href="/auth/setup">
+      Modern authentication system with session management and user roles
+    </Card>
+    <Card title="Drizzle ORM" icon="database" href="/database/drizzle-orm">
+      Type-safe database queries with PostgreSQL and migration support
+    </Card>
+    <Card title="OpenTelemetry" icon="chart-line" href="/observability/overview">
+      Full observability stack with traces, metrics, logs, and profiling
+    </Card>
+    <Card title="Monorepo Structure" icon="layer-group" href="/concepts/monorepo-architecture">
+      Organized workspace with shared packages and clear separation
+    </Card>
+    <Card title="TypeScript" icon="code" href="/concepts/typescript-config">
+      Strict typing throughout for better developer experience
+    </Card>
+  </CardGroup>
+</div>
 
-## Create beautiful pages
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <h2 className="text-3xl font-bold dark:text-white text-gray-900 mb-4">Explore by Topic</h2>
+  <p className="text-base dark:text-gray-400 text-gray-600 mb-8">Deep dive into specific areas</p>
+  
+  <CardGroup cols={3}>
+    <Card title="Core Concepts" icon="book-open" href="/concepts/monorepo-architecture">
+      Learn about the monorepo architecture and TypeScript configuration
+    </Card>
+    <Card title="Database" icon="table" href="/database/schema-design">
+      Schema design, migrations, and ORM usage patterns
+    </Card>
+    <Card title="Authentication" icon="key" href="/auth/setup">
+      User management, sessions, and security best practices
+    </Card>
+    <Card title="Observability" icon="gauge" href="/observability/overview">
+      Logging, tracing, metrics, and Grafana dashboards
+    </Card>
+    <Card title="Development" icon="terminal" href="/development/scripts">
+      Scripts, testing, and dependency management workflows
+    </Card>
+    <Card title="Deployment" icon="rocket" href="/deployment/docker">
+      Docker configuration, production builds, and CI/CD pipelines
+    </Card>
+  </CardGroup>
+</div>
 
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<div className="mt-16 mb-16 max-w-5xl mx-auto px-6">
+  <div className="dark:bg-[#1a1d27] bg-gray-50 rounded-2xl p-8 dark:border-[#27272a] border-gray-200 border">
+    <h2 className="text-2xl font-bold dark:text-white text-gray-900 mb-3">Ready to build?</h2>
+    <p className="dark:text-gray-400 text-gray-600 mb-6">
+      Start with the quickstart guide to get your backend up and running, or explore the API reference to understand the full capabilities.
+    </p>
+    <div className="flex flex-wrap gap-3">
+      <a
+        href="/quickstart"
+        className="inline-flex items-center px-5 py-2.5 rounded-lg bg-[#4595db] text-white font-semibold hover:bg-[#3a7fc4] transition-colors"
+      >
+        Quickstart Guide
+      </a>
+      <a
+        href="/api/core/apis"
+        className="inline-flex items-center px-5 py-2.5 rounded-lg dark:border-[#27272a] border-gray-300 border dark:text-white text-gray-900 font-semibold dark:hover:bg-[#242838] hover:bg-gray-100 transition-colors"
+      >
+        API Reference
+      </a>
+    </div>
+  </div>
+</div>

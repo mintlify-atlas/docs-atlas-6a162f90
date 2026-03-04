@@ -1,0 +1,415 @@
+---
+title: Migrations
+description: Database migration workflow, commands, and best practices using Drizzle Kit
+---
+
+Drizzle Kit manages database migrations with a streamlined workflow that generates SQL migrations from your TypeScript schema definitions.
+
+## Migration Configuration
+
+Migrations are configured in `drizzle.config.ts`:
+
+```typescript
+import { defineConfig } from "drizzle-kit";
+
+export default defineConfig({
+  out: "./src/db/migrations",
+  schema: "./src/db/schema.ts",
+  dialect: "postgresql",
+  casing: "snake_case",
+  dbCredentials: {
+    url: process.env.DATABASE_URL!,
+  },
+});
+```
+
+**Key Configuration:**
+- `out`: Where migration files are generated
+- `schema`: Source schema file location
+- `dialect`: PostgreSQL database
+- `casing`: Automatic snake_case conversion for table/column names
+- `dbCredentials`: Connection string from environment
+
+## Migration Commands
+
+All migration commands are available as npm scripts in `package.json`:
+
+### Generate Migrations
+
+```bash
+bun run db:gen
+```
+
+Generates a new migration file based on schema changes:
+
+```bash
+dotenvx run --env-file=.env.dev -- drizzle-kit generate
+```
+
+- Compares current schema with database state
+- Creates SQL migration file in `src/db/migrations/`
+- Generates snapshot for tracking
+
+### Push Changes (Development)
+
+```bash
+bun run db:push
+```
+
+Directly applies schema changes to the database without generating migration files:
+
+```bash
+dotenvx run --env-file=.env.dev -- drizzle-kit push --verbose --strict
+```
+
+- `--verbose`: Detailed output
+- `--strict`: Strict mode prevents destructive changes
+- Ideal for rapid development
+- **Warning**: Not recommended for production
+
+### Apply Migrations
+
+```bash
+bun run db:migrate
+```
+
+Runs pending migrations against the database:
+
+```bash
+dotenvx run --env-file=.env.dev -- drizzle-kit migrate
+```
+
+- Executes SQL migrations in order
+- Updates migration journal
+- Safe for production use
+
+### Pull Schema
+
+```bash
+bun run db:pull
+```
+
+Introspects existing database and generates schema:
+
+```bash
+dotenvx run --env-file=.env.dev -- drizzle-kit pull
+```
+
+Useful for:
+- Syncing with existing databases
+- Recovering schema from production
+- Reverse engineering schemas
+
+### Drizzle Studio
+
+```bash
+bun run db:studio
+```
+
+Launches the Drizzle Studio GUI:
+
+```bash
+dotenvx run --env-file=.env.dev -- drizzle-kit studio --port 3003 --verbose
+```
+
+- Visual database browser
+- Runs on port 3003
+- Query and explore data
+- Schema visualization
+
+## Migration Workflow
+
+### Standard Development Flow
+
+1. **Modify Schema** - Edit `src/db/schema.ts`
+   ```typescript
+   export const newTable = pgTable("new_table", {
+     id: uuid("id").defaultRandom().primaryKey(),
+     name: text("name").notNull(),
+   });
+   ```
+
+2. **Generate Migration** - Run `bun run db:gen`
+   ```
+   Drizzle Kit detects changes and generates:
+   src/db/migrations/0002_curious_nickname.sql
+   ```
+
+3. **Review Migration** - Inspect generated SQL
+   ```sql
+   CREATE TABLE "new_table" (
+     "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+     "name" text NOT NULL
+   );
+   ```
+
+4. **Apply Migration** - Run `bun run db:migrate`
+   ```
+   Migration applied successfully
+   ```
+
+### Rapid Development Flow
+
+For quick iterations during development:
+
+1. **Modify Schema** - Edit `src/db/schema.ts`
+2. **Push Directly** - Run `bun run db:push`
+   - Skips migration file generation
+   - Applies changes immediately
+   - Faster iteration
+
+**Note**: Always generate proper migrations before deploying to production.
+
+## Migration File Structure
+
+Migrations are stored in `src/db/migrations/`:
+
+```
+src/db/migrations/
+├── 0000_acoustic_sasquatch.sql
+├── 0001_abnormal_squadron_sinister.sql
+└── meta/
+    ├── 0000_snapshot.json
+    ├── 0001_snapshot.json
+    └── _journal.json
+```
+
+### Migration File Format
+
+Each migration is a SQL file with a numbered prefix and random name:
+
+```sql
+-- 0000_acoustic_sasquatch.sql
+CREATE TABLE "user" (
+  "id" text PRIMARY KEY NOT NULL,
+  "name" text NOT NULL,
+  "email" text NOT NULL,
+  "email_verified" boolean DEFAULT false NOT NULL,
+  "image" text,
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  "updated_at" timestamp,
+  "deleted_at" timestamp,
+  CONSTRAINT "user_email_unique" UNIQUE("email")
+);
+```
+
+### Statement Breakpoints
+
+Migrations use `--> statement-breakpoint` to separate SQL statements:
+
+```sql
+CREATE TABLE "session" (
+  "id" text PRIMARY KEY NOT NULL,
+  "expires_at" timestamp NOT NULL,
+  "token" text NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "user" (
+  "id" text PRIMARY KEY NOT NULL,
+  "name" text NOT NULL
+);
+```
+
+This ensures proper transaction handling and rollback capabilities.
+
+### Migration Journal
+
+The `meta/_journal.json` file tracks all migrations:
+
+```json
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1754724542196,
+      "tag": "0000_acoustic_sasquatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1754992282199,
+      "tag": "0001_abnormal_squadron_sinister",
+      "breakpoints": true
+    }
+  ]
+}
+```
+
+## Example Migrations
+
+### Initial Auth Schema (0000)
+
+The first migration creates the authentication tables:
+
+```sql
+CREATE TABLE "user" (
+  "id" text PRIMARY KEY NOT NULL,
+  "name" text NOT NULL,
+  "email" text NOT NULL,
+  "email_verified" boolean DEFAULT false NOT NULL,
+  "image" text,
+  "created_at" timestamp DEFAULT now() NOT NULL,
+  "updated_at" timestamp,
+  "deleted_at" timestamp,
+  CONSTRAINT "user_email_unique" UNIQUE("email")
+);
+--> statement-breakpoint
+ALTER TABLE "session" 
+  ADD CONSTRAINT "session_user_id_user_id_fk" 
+  FOREIGN KEY ("user_id") 
+  REFERENCES "public"."user"("id") 
+  ON DELETE cascade 
+  ON UPDATE no action;
+```
+
+### Rate Limiting Addition (0001)
+
+The second migration adds rate limiting:
+
+```sql
+CREATE TABLE "rate_limit" (
+  "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "key" text NOT NULL,
+  "count" integer DEFAULT 0 NOT NULL,
+  "last_request" bigint NOT NULL,
+  CONSTRAINT "rate_limit_key_unique" UNIQUE("key")
+);
+```
+
+## Migration Best Practices
+
+### 1. Always Review Generated SQL
+
+Before applying migrations, review the generated SQL:
+
+```bash
+bun run db:gen
+cat src/db/migrations/0002_*.sql
+```
+
+### 2. Test Migrations Locally
+
+Always test migrations against a local database first:
+
+```bash
+# Generate migration
+bun run db:gen
+
+# Test locally
+bun run db:migrate
+
+# Verify with studio
+bun run db:studio
+```
+
+### 3. Version Control
+
+Commit migration files to version control:
+
+```bash
+git add src/db/migrations/
+git commit -m "feat(db): add user preferences table"
+```
+
+### 4. One-Way Migrations
+
+Drizzle migrations are forward-only. To rollback:
+- Create a new migration that reverses changes
+- Or restore from database backup
+
+### 5. Production Deployment
+
+**Never use `db:push` in production**. Always use proper migrations:
+
+```bash
+# Development: Fast iteration
+bun run db:push
+
+# Production: Controlled migrations
+bun run db:gen
+bun run db:migrate
+```
+
+### 6. Handle Data Migrations
+
+For data transformations, manually edit generated SQL:
+
+```sql
+-- Generated migration
+ALTER TABLE "user" ADD COLUMN "full_name" text;
+--> statement-breakpoint
+-- Manual addition: Migrate existing data
+UPDATE "user" SET "full_name" = "name" WHERE "full_name" IS NULL;
+--> statement-breakpoint
+ALTER TABLE "user" ALTER COLUMN "full_name" SET NOT NULL;
+```
+
+### 7. Strict Mode
+
+Use `--strict` flag to prevent destructive changes:
+
+```bash
+bun run db:push  # Already includes --strict
+```
+
+Prevents:
+- Column drops
+- Type changes that lose data
+- Constraint removals
+
+## Environment Configuration
+
+All commands use `dotenvx` for environment management:
+
+```bash
+dotenvx run --env-file=.env.dev -- drizzle-kit generate
+```
+
+Environment files:
+- `.env.dev` - Local development
+- `.env.prod` - Production
+
+Ensure `DATABASE_URL` is set in your environment file:
+
+```env
+DATABASE_URL=postgresql://user:pass@localhost:5432/dbname
+```
+
+## Troubleshooting
+
+### Migration Out of Sync
+
+If migrations are out of sync:
+
+```bash
+# Pull current schema
+bun run db:pull
+
+# Generate fresh migration
+bun run db:gen
+```
+
+### Failed Migration
+
+If a migration fails:
+
+1. Check database logs
+2. Fix the issue
+3. Create a new migration with the fix
+4. Apply the corrective migration
+
+### Reset Development Database
+
+To start fresh:
+
+```bash
+# Drop all tables (careful!)
+psql $DATABASE_URL -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+
+# Reapply all migrations
+bun run db:migrate
+```

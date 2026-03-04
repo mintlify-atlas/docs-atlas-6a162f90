@@ -1,0 +1,264 @@
+---
+title: Testing
+description: Testing setup and workflows for the BE Monorepo using Bun test
+---
+
+# Testing
+
+The BE Monorepo uses [Bun's built-in test runner](https://bun.sh/docs/cli/test) for fast, integrated testing.
+
+## Test Setup
+
+### Test Framework
+
+Tests use Bun's native test APIs with a Jest-like syntax:
+
+```typescript
+import { describe, expect, it } from "bun:test";
+```
+
+### Test Location
+
+Tests for the Hono app are located in:
+
+```
+apps/hono/tests/
+├── llms.test.ts
+├── llms-auth.test.ts
+├── llms-docs.test.ts
+└── util.ts
+```
+
+### Environment Configuration
+
+Tests run with development environment variables automatically loaded:
+
+```bash
+bun test --env-file=.env.dev
+```
+
+## Running Tests
+
+### From Repository Root
+
+Run tests for the Hono app:
+
+```bash
+bun run hono:test
+```
+
+This executes `bun test` in the `@workspace/hono` workspace with the development environment file.
+
+### From App Directory
+
+Navigate to the app and run tests directly:
+
+```bash
+cd apps/hono
+bun run test
+```
+
+### Watch Mode
+
+Run tests in watch mode for continuous testing during development:
+
+```bash
+cd apps/hono
+bun test --watch
+```
+
+### Filtering Tests
+
+Run specific test files:
+
+```bash
+bun test llms.test.ts
+```
+
+Run tests matching a pattern:
+
+```bash
+bun test --test-name-pattern="should return"
+```
+
+## Test Patterns
+
+### API Endpoint Testing
+
+Tests validate HTTP endpoints by making requests to the Hono app instance:
+
+```typescript
+import { describe, expect, it } from "bun:test";
+import { app } from "@/app.js";
+
+describe("/llms.txt endpoint", () => {
+  it("should return the OpenAPI docs and have Server-Timing with total duration under 1s", async () => {
+    const res = await app.request("/llms.txt");
+    const text = await res.text();
+    const serverTiming = res.headers.get("Server-Timing");
+    
+    expect(res.status).toBe(200);
+    expect(text).toMatch(/# Hono API - Development/);
+    expect(serverTiming).not.toBeNull();
+  });
+});
+```
+
+### Testing Utilities
+
+Common test utilities are shared in `tests/util.ts`:
+
+```typescript
+/**
+ * Parse the Server-Timing header and return the total duration
+ */
+export function parseServerTimingHeader(header: string | null): number | null {
+  const m = header?.match(/total;dur=([\d.]+)/);
+  return m ? Number(m[1]) : null;
+}
+```
+
+Use utilities in tests:
+
+```typescript
+import { parseServerTimingHeader } from "./util.js";
+
+const serverTiming = res.headers.get("Server-Timing");
+const dur = parseServerTimingHeader(serverTiming);
+expect(dur).toBeLessThan(1000);
+```
+
+### Performance Testing
+
+Tests can validate performance characteristics using the `Server-Timing` header:
+
+```typescript
+it("should respond quickly", async () => {
+  const res = await app.request("/endpoint");
+  const serverTiming = res.headers.get("Server-Timing");
+  const dur = parseServerTimingHeader(serverTiming);
+  
+  expect(dur).not.toBeNull();
+  expect(dur!).toBeLessThan(1000); // Under 1 second
+});
+```
+
+### Authentication Testing
+
+Tests for authenticated endpoints are in `tests/llms-auth.test.ts`.
+
+### Documentation Testing
+
+Tests for documentation endpoints are in `tests/llms-docs.test.ts`.
+
+## Test Structure
+
+### Organizing Tests
+
+- **One test file per feature/route**: Keep tests focused and maintainable
+- **Shared utilities**: Place common helpers in `tests/util.ts`
+- **Descriptive names**: Use clear `describe` and `it` blocks
+
+### Example Test Structure
+
+```typescript
+import { describe, expect, it } from "bun:test";
+import { app } from "@/app.js";
+
+describe("Feature Name", () => {
+  describe("GET /endpoint", () => {
+    it("should return success for valid request", async () => {
+      // Arrange
+      const params = { id: "123" };
+      
+      // Act
+      const res = await app.request("/endpoint?id=123");
+      const json = await res.json();
+      
+      // Assert
+      expect(res.status).toBe(200);
+      expect(json).toMatchObject({ success: true });
+    });
+    
+    it("should return error for invalid request", async () => {
+      const res = await app.request("/endpoint");
+      expect(res.status).toBe(400);
+    });
+  });
+});
+```
+
+## Best Practices
+
+### Test Independence
+
+- Each test should be independent and not rely on other tests
+- Clean up resources after tests if needed
+- Use fresh data for each test
+
+### Environment Variables
+
+Tests use `.env.dev` for configuration. Ensure sensitive values are not committed:
+
+```bash
+# .env.dev is gitignored
+bun test --env-file=.env.dev
+```
+
+### Testing Workflow
+
+When making changes:
+
+1. Write or update tests
+2. Run tests locally: `bun run hono:test`
+3. Ensure all tests pass before committing
+4. CI will run tests automatically
+
+### Continuous Integration
+
+Tests run automatically in CI as part of the `lint-typecheck` workflow:
+
+```bash
+bun run lint-typecheck
+bun run hono:test
+```
+
+## Debugging Tests
+
+### Verbose Output
+
+Run tests with detailed output:
+
+```bash
+bun test --verbose
+```
+
+### Single Test File
+
+Focus on a specific test file:
+
+```bash
+bun test tests/llms.test.ts
+```
+
+### Using Console Logs
+
+Add debugging output in tests:
+
+```typescript
+it("should debug issue", async () => {
+  const res = await app.request("/endpoint");
+  console.log("Response:", await res.text());
+  expect(res.status).toBe(200);
+});
+```
+
+## Coverage
+
+Bun provides built-in coverage support:
+
+```bash
+bun test --coverage
+```
+
+This generates coverage reports showing which code paths are tested.

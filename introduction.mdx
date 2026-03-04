@@ -1,0 +1,148 @@
+---
+title: "Introduction"
+description: "A production-ready Hono 4 monorepo template with authentication, database, and observability built-in"
+---
+
+## What is BE Monorepo?
+
+BE Monorepo is a batteries-included backend template built on [Hono 4](https://hono.dev), a fast and lightweight web framework. It provides a complete foundation for building production-ready APIs with TypeScript, featuring authentication, database management, and observability out of the box.
+
+The template is organized as a monorepo using Bun workspaces, allowing you to share code between multiple applications and packages while maintaining clear boundaries and type safety.
+
+## Why use BE Monorepo?
+
+<AccordionGroup>
+  <Accordion title="Start with best practices">
+    Skip weeks of setup and configuration. BE Monorepo includes production-tested patterns for authentication, database migrations, error handling, and API documentation.
+  </Accordion>
+
+  <Accordion title="Type-safe from end to end">
+    Written entirely in TypeScript with strict configuration. Drizzle ORM provides type-safe database queries, while Zod ensures runtime validation matches your types.
+  </Accordion>
+
+  <Accordion title="Observable by default">
+    OpenTelemetry integration provides traces, metrics, logs, and profiling. Connect to Grafana dashboards to monitor your application in development and production.
+  </Accordion>
+
+  <Accordion title="Modern tooling">
+    Built with modern tools like Bun for fast package management, Biome for linting and formatting, and Changesets for version management.
+  </Accordion>
+</AccordionGroup>
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Hono 4 framework" icon="bolt">
+    Ultra-fast web framework with middleware for CORS, CSRF, rate limiting, and more. Built-in OpenAPI documentation generation.
+  </Card>
+
+  <Card title="Better Auth" icon="shield">
+    Modern authentication library with session management, user roles, and built-in security features.
+  </Card>
+
+  <Card title="Drizzle ORM" icon="database">
+    Type-safe PostgreSQL database access with migrations, schema generation, and a built-in studio UI.
+  </Card>
+
+  <Card title="OpenTelemetry" icon="chart-line">
+    Full observability stack with automatic instrumentation for traces, metrics, and logs.
+  </Card>
+
+  <Card title="Monorepo structure" icon="layer-group">
+    Organized workspace with apps and shared packages. Easily add new services while sharing common code.
+  </Card>
+
+  <Card title="Developer experience" icon="code">
+    Hot reload with Bun, unified linting with Ultracite, type checking, and pre-commit hooks with Husky.
+  </Card>
+</CardGroup>
+
+## What's included
+
+The monorepo comes with a fully configured Hono application and shared packages:
+
+### Applications
+
+- **@workspace/hono** - Main Hono 4 API server with authentication, database, and observability
+
+### Packages
+
+- **@workspace/core** - Shared utilities, constants, types, and HTTP services
+- **@workspace/typescript-config** - Shared TypeScript configuration for consistent compiler settings
+
+### Infrastructure
+
+- Docker Compose configuration for PostgreSQL, Redis, and Grafana observability stack
+- GitHub Actions CI/CD workflows for testing and deployment
+- Environment variable management with dotenvx
+
+## Technology stack
+
+<CodeGroup>
+
+```json package.json
+{
+  "name": "be-monorepo",
+  "packageManager": "bun@1.3.10",
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}
+```
+
+```json apps/hono/package.json
+{
+  "name": "@workspace/hono",
+  "dependencies": {
+    "hono": "4.11.9",
+    "@hono/zod-openapi": "1.2.2",
+    "better-auth": "1.4.18",
+    "drizzle-orm": "0.45.1",
+    "@opentelemetry/api": "1.9.0",
+    "zod": "4.3.6"
+  }
+}
+```
+
+</CodeGroup>
+
+<Note>
+  **Runtime flexibility**: The template supports both Bun and Node.js runtimes. Use `bun hono dev` for Bun or `bun hono node:dev` for Node.js.
+</Note>
+
+## Core middleware
+
+The Hono application comes pre-configured with essential middleware from `apps/hono/src/app.ts`:
+
+```typescript apps/hono/src/app.ts
+import { OpenAPIHono } from "@hono/zod-openapi";
+import { httpInstrumentationMiddleware } from "@hono/otel";
+
+const app = new OpenAPIHono();
+
+app.use("*",
+  httpInstrumentationMiddleware({ serviceName: "hono-api" }),
+  contextStorage(),
+  loggerMiddleware(),
+  cors({ origin: [ENV.APP_URL] }),
+  requestId(),
+  timing(),
+  csrf({ origin: [ENV.APP_URL] }),
+  secureHeaders(),
+  prettyJSON()
+);
+```
+
+This setup provides request tracing, logging, CORS protection, CSRF protection, security headers, and automatic JSON formatting.
+
+## Next steps
+
+Ready to get started? Follow the quickstart guide to clone the repository, install dependencies, and run your first API server.
+
+<Card title="Quickstart guide" icon="rocket" href="/quickstart">
+  Get your backend running in under 5 minutes
+</Card>

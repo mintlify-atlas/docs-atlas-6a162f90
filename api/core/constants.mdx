@@ -1,0 +1,317 @@
+---
+title: 'Constants'
+description: 'Constant values and type definitions for the Core Package'
+icon: 'hashtag'
+---
+
+## Overview
+
+The Core Package exports various constants for use across the application. These include byte multipliers, timezone definitions, and HTTP status codes.
+
+## Core Constants
+
+### Import
+
+```typescript
+import {
+  kilobyteMultiplier,
+  megabyteMultiplier,
+  gigabyteMultiplier,
+  indoTimezone
+} from '@workspace/core/constants/core';
+```
+
+### Byte Multipliers
+
+Constants for converting between byte units.
+
+<ParamField path="kilobyteMultiplier" type="number" default="1024">
+  Multiplier for converting bytes to kilobytes
+</ParamField>
+
+<ParamField path="megabyteMultiplier" type="number" default="1048576">
+  Multiplier for converting bytes to megabytes (KB * KB)
+</ParamField>
+
+<ParamField path="gigabyteMultiplier" type="number" default="1073741824">
+  Multiplier for converting bytes to gigabytes (MB * KB)
+</ParamField>
+
+```typescript
+// Convert bytes to different units
+const bytes = 5242880;
+
+const kilobytes = bytes / kilobyteMultiplier;
+console.log(`${kilobytes} KB`); // 5120 KB
+
+const megabytes = bytes / megabyteMultiplier;
+console.log(`${megabytes} MB`); // 5 MB
+
+const gigabytes = bytes / gigabyteMultiplier;
+console.log(`${gigabytes} GB`); // 0.0048828125 GB
+```
+
+### Indonesian Timezones
+
+Array of Indonesian timezone abbreviations.
+
+<ParamField path="indoTimezone" type="readonly ['WIB', 'WITA', 'WIT']">
+  Array of Indonesian timezone codes:
+  - **WIB**: Western Indonesian Time (UTC+7)
+  - **WITA**: Central Indonesian Time (UTC+8)
+  - **WIT**: Eastern Indonesian Time (UTC+9)
+</ParamField>
+
+```typescript
+// Check if a timezone is Indonesian
+const timezone = 'WIB';
+
+if (indoTimezone.includes(timezone as typeof indoTimezone[number])) {
+  console.log('This is an Indonesian timezone');
+}
+
+// Iterate over timezones
+indoTimezone.forEach(tz => {
+  console.log(`Timezone: ${tz}`);
+});
+// Output:
+// Timezone: WIB
+// Timezone: WITA
+// Timezone: WIT
+```
+
+## HTTP Constants
+
+### Import
+
+```typescript
+import {
+  HTTP_STATUS_CODES,
+  type StatusCode,
+  type SuccessStatusCode,
+  type ClientErrorStatusCode,
+  type ServerErrorStatusCode
+} from '@workspace/core/constants/http';
+```
+
+### HTTP Status Codes
+
+Commonly used HTTP status code constants.
+
+<ParamField path="HTTP_STATUS_CODES.BAD_REQUEST" type="400">
+  Client sent a malformed request
+</ParamField>
+
+<ParamField path="HTTP_STATUS_CODES.UNAUTHORIZED" type="401">
+  Authentication is required
+</ParamField>
+
+<ParamField path="HTTP_STATUS_CODES.FORBIDDEN" type="403">
+  Client lacks permission
+</ParamField>
+
+<ParamField path="HTTP_STATUS_CODES.NOT_FOUND" type="404">
+  Resource not found
+</ParamField>
+
+<ParamField path="HTTP_STATUS_CODES.METHOD_NOT_ALLOWED" type="405">
+  HTTP method not supported
+</ParamField>
+
+<ParamField path="HTTP_STATUS_CODES.PRECONDITION_FAILED" type="412">
+  One or more preconditions failed
+</ParamField>
+
+<ParamField path="HTTP_STATUS_CODES.UNPROCESSABLE_ENTITY" type="422">
+  Validation error
+</ParamField>
+
+<ParamField path="HTTP_STATUS_CODES.TOO_MANY_REQUESTS" type="429">
+  Rate limit exceeded
+</ParamField>
+
+<ParamField path="HTTP_STATUS_CODES.INTERNAL_SERVER_ERROR" type="500">
+  Generic server error
+</ParamField>
+
+<ParamField path="HTTP_STATUS_CODES.NOT_IMPLEMENTED" type="501">
+  Server doesn't support this functionality
+</ParamField>
+
+<ParamField path="HTTP_STATUS_CODES.BAD_GATEWAY" type="502">
+  Invalid response from upstream server
+</ParamField>
+
+<ParamField path="HTTP_STATUS_CODES.SERVICE_UNAVAILABLE" type="503">
+  Server is temporarily unavailable
+</ParamField>
+
+<ParamField path="HTTP_STATUS_CODES.GATEWAY_TIMEOUT" type="504">
+  Upstream server timeout
+</ParamField>
+
+```typescript
+// Use in error handling
+if (response.status === HTTP_STATUS_CODES.UNAUTHORIZED) {
+  console.log('User needs to log in');
+  redirectToLogin();
+}
+
+if (response.status === HTTP_STATUS_CODES.NOT_FOUND) {
+  console.log('Resource not found');
+}
+
+if (response.status === HTTP_STATUS_CODES.TOO_MANY_REQUESTS) {
+  console.log('Rate limited, please wait');
+}
+```
+
+## HTTP Status Code Types
+
+Type definitions for categorizing HTTP status codes.
+
+### InfoStatusCode
+
+Informational responses (100-103).
+
+```typescript
+type InfoStatusCode = 100 | 101 | 102 | 103;
+```
+
+### SuccessStatusCode
+
+Successful responses (200-208, 226).
+
+```typescript
+type SuccessStatusCode =
+  | 200 // OK
+  | 201 // Created
+  | 202 // Accepted
+  | 203 // Non-Authoritative Information
+  | 204 // No Content
+  | 205 // Reset Content
+  | 206 // Partial Content
+  | 207 // Multi-Status
+  | 208 // Already Reported
+  | 226; // IM Used
+```
+
+### RedirectStatusCode
+
+Redirection responses (300-308).
+
+```typescript
+type RedirectStatusCode =
+  | 300 // Multiple Choices
+  | 301 // Moved Permanently
+  | 302 // Found
+  | 303 // See Other
+  | 304 // Not Modified
+  | 307 // Temporary Redirect
+  | 308; // Permanent Redirect
+```
+
+### ClientErrorStatusCode
+
+Client error responses (400-451).
+
+```typescript
+type ClientErrorStatusCode =
+  | 400 // Bad Request
+  | 401 // Unauthorized
+  | 403 // Forbidden
+  | 404 // Not Found
+  | 405 // Method Not Allowed
+  // ... and more
+  | 429 // Too Many Requests
+  | 451; // Unavailable For Legal Reasons
+```
+
+### ServerErrorStatusCode
+
+Server error responses (500-511).
+
+```typescript
+type ServerErrorStatusCode =
+  | 500 // Internal Server Error
+  | 501 // Not Implemented
+  | 502 // Bad Gateway
+  | 503 // Service Unavailable
+  | 504 // Gateway Timeout
+  | 505 // HTTP Version Not Supported
+  | 506 // Variant Also Negotiates
+  | 507 // Insufficient Storage
+  | 508 // Loop Detected
+  | 510 // Not Extended
+  | 511; // Network Authentication Required
+```
+
+### StatusCode
+
+Union of all status code types.
+
+```typescript
+type StatusCode =
+  | InfoStatusCode
+  | SuccessStatusCode
+  | RedirectStatusCode
+  | ClientErrorStatusCode
+  | ServerErrorStatusCode
+  | UnofficialStatusCode;
+```
+
+### UnofficialStatusCode
+
+Type for unofficial or custom status codes.
+
+```typescript
+type UnofficialStatusCode = -1;
+
+// Example usage
+const customStatus = 520 as UnofficialStatusCode;
+```
+
+### ContentlessStatusCode
+
+Status codes that should not have a response body.
+
+```typescript
+type ContentlessStatusCode = 101 | 204 | 205 | 304;
+```
+
+### ContentfulStatusCode
+
+Status codes that can have a response body.
+
+```typescript
+type ContentfulStatusCode = Exclude<StatusCode, ContentlessStatusCode>;
+```
+
+## Type Guards
+
+Utility functions for checking status code types:
+
+```typescript
+function isSuccessStatus(status: number): status is SuccessStatusCode {
+  return status >= 200 && status < 300;
+}
+
+function isClientError(status: number): status is ClientErrorStatusCode {
+  return status >= 400 && status < 500;
+}
+
+function isServerError(status: number): status is ServerErrorStatusCode {
+  return status >= 500 && status < 600;
+}
+
+// Usage
+const status = response.status;
+
+if (isSuccessStatus(status)) {
+  console.log('Success!');
+} else if (isClientError(status)) {
+  console.log('Client error');
+} else if (isServerError(status)) {
+  console.log('Server error');
+}
+```

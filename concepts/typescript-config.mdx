@@ -1,0 +1,714 @@
+---
+title: TypeScript Configuration
+description: Shared TypeScript configuration and strict typing practices across the monorepo
+---
+
+## Overview
+
+The BE Monorepo uses a centralized TypeScript configuration approach through the `@workspace/typescript-config` package. This ensures consistent type checking, compilation settings, and strict typing practices across all applications and packages.
+
+## Package Structure
+
+The TypeScript configuration package provides reusable configuration files:
+
+```
+packages/typescript-config/
+├── base.json          # Base configuration for all packages
+├── node.json          # Node.js-specific configuration
+└── package.json       # Package metadata
+```
+
+## Configuration Files
+
+### Base Configuration
+
+The `base.json` provides foundational settings for all packages:
+
+```json packages/typescript-config/base.json
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Default",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": true,
+    "esModuleInterop": true,
+    "incremental": false,
+    "isolatedModules": true,
+    "lib": ["es2022", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleDetection": "force",
+    "moduleResolution": "NodeNext",
+    "noUncheckedIndexedAccess": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022"
+  }
+}
+```
+
+### Node.js Configuration
+
+The `node.json` extends the base with Node.js-specific settings:
+
+```json packages/typescript-config/node.json
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Node.js",
+  "compilerOptions": {
+    "outDir": "./dist",
+    
+    "module": "NodeNext",
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "types": ["node"],
+    
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+    
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    
+    "strict": true,
+    "jsx": "react-jsx",
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true
+  }
+}
+```
+
+## Configuration Inheritance
+
+### Root TypeScript Config
+
+The root `tsconfig.json` extends the base configuration:
+
+```json tsconfig.json
+{
+  "extends": "@workspace/typescript-config/base.json"
+}
+```
+
+### Application Configuration
+
+Applications extend the Node.js configuration and add app-specific settings:
+
+```json apps/hono/tsconfig.json
+{
+  "extends": "@workspace/typescript-config/node.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+    "declaration": false,
+    "declarationMap": false,
+    "resolveJsonModule": true,
+    "types": ["bun"],
+    "paths": {
+      "*": ["./*"],
+      "@/*": ["./src/*"],
+      "@workspace/core/*": ["../../packages/core/src/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", "**/*.spec.ts", "**/*.json"],
+  "exclude": ["node_modules", "dist"]
+}
+```
+
+### Package Configuration
+
+Shared packages also extend the Node.js configuration:
+
+```json packages/core/tsconfig.json
+{
+  "extends": "@workspace/typescript-config/node.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "declaration": false,
+    "declarationMap": false,
+    "paths": {
+      "*": ["./*"],
+      "@workspace/core/*": ["./src/*"]
+    }
+  },
+  "include": ["."],
+  "exclude": ["node_modules", "dist"]
+}
+```
+
+<Info>
+  Configuration inheritance allows packages to override specific settings while maintaining consistency across the monorepo.
+</Info>
+
+## Compiler Options Explained
+
+### Module System
+
+<AccordionGroup>
+  <Accordion title="module & moduleResolution">
+    ```json
+    {
+      "module": "NodeNext",
+      "moduleResolution": "NodeNext"
+    }
+    ```
+    
+    - Uses Node.js's native ESM resolution
+    - Supports both `.js` and `.ts` extensions
+    - Enables `package.json` `exports` field support
+    - Required for modern Node.js projects
+  </Accordion>
+
+  <Accordion title="moduleDetection">
+    ```json
+    {
+      "moduleDetection": "force"
+    }
+    ```
+    
+    - Treats all files as modules (ESM)
+    - Prevents global scope pollution
+    - Required for consistent module behavior
+  </Accordion>
+
+  <Accordion title="esModuleInterop">
+    ```json
+    {
+      "esModuleInterop": true
+    }
+    ```
+    
+    - Enables seamless imports from CommonJS modules
+    - Adds helper functions for default imports
+    - Required for importing CommonJS packages
+  </Accordion>
+</AccordionGroup>
+
+### Strict Type Checking
+
+The monorepo enables comprehensive strict type checking:
+
+```json
+{
+  "strict": true,
+  "noUnusedLocals": true,
+  "noUnusedParameters": true,
+  "noUncheckedIndexedAccess": true,
+  "exactOptionalPropertyTypes": true,
+  "noUncheckedSideEffectImports": true
+}
+```
+
+#### strict: true
+
+Enables all strict type checking options:
+
+```typescript
+// ❌ Error: Implicit 'any' type
+function process(data) {
+  return data.value;
+}
+
+// ✅ Correct: Explicit type
+function process(data: { value: string }) {
+  return data.value;
+}
+```
+
+#### noUncheckedIndexedAccess
+
+Adds `undefined` to indexed access types:
+
+```typescript
+const users = ["Alice", "Bob"];
+
+// Type is string | undefined (not just string)
+const user = users[0];
+
+// ❌ Error: Object is possibly 'undefined'
+user.toUpperCase();
+
+// ✅ Correct: Check for undefined
+if (user) {
+  user.toUpperCase();
+}
+
+// ✅ Correct: Use optional chaining
+user?.toUpperCase();
+```
+
+<Tip>
+  This option catches common array out-of-bounds and object access errors at compile time.
+</Tip>
+
+#### exactOptionalPropertyTypes
+
+Distinguishes between `undefined` and missing properties:
+
+```typescript
+interface User {
+  name: string;
+  email?: string;
+}
+
+// ❌ Error: Cannot explicitly set to undefined
+const user1: User = {
+  name: "Alice",
+  email: undefined,
+};
+
+// ✅ Correct: Omit optional property
+const user2: User = {
+  name: "Alice",
+};
+
+// ✅ Correct: Provide a value
+const user3: User = {
+  name: "Alice",
+  email: "alice@example.com",
+};
+```
+
+#### noUnusedLocals & noUnusedParameters
+
+Prevents unused variables and parameters:
+
+```typescript
+// ❌ Error: 'unused' is declared but never used
+function calculate(x: number, unused: number) {
+  return x * 2;
+}
+
+// ✅ Correct: Remove unused parameter
+function calculate(x: number) {
+  return x * 2;
+}
+
+// ✅ Correct: Prefix with underscore if intentionally unused
+function calculate(x: number, _unused: number) {
+  return x * 2;
+}
+```
+
+#### noUncheckedSideEffectImports
+
+Requires explicit side-effect imports:
+
+```typescript
+// ❌ Error: Side-effect import must use 'import type' or explicit value import
+import "./setup";
+
+// ✅ Correct: Explicit side-effect import
+import {} from "./setup";
+
+// ✅ Correct: Import specific values
+import { setupDatabase } from "./setup";
+```
+
+### Declaration Files
+
+```json
+{
+  "declaration": true,
+  "declarationMap": true
+}
+```
+
+- `declaration`: Generates `.d.ts` type definition files
+- `declarationMap`: Creates source maps for `.d.ts` files
+- Enables "Go to Definition" in IDEs to jump to TypeScript source
+
+<Note>
+  Applications typically set `"declaration": false` since they don't need to export types.
+</Note>
+
+### Build Options
+
+```json
+{
+  "outDir": "./dist",
+  "sourceMap": true,
+  "isolatedModules": true,
+  "verbatimModuleSyntax": true
+}
+```
+
+- `outDir`: Compiled JavaScript output directory
+- `sourceMap`: Generates `.js.map` files for debugging
+- `isolatedModules`: Ensures each file can be compiled independently (required by Bun)
+- `verbatimModuleSyntax`: Preserves import/export syntax exactly as written
+
+## Path Aliases
+
+Path aliases simplify imports and enable direct source access:
+
+### Application Aliases
+
+```json apps/hono/tsconfig.json
+{
+  "compilerOptions": {
+    "paths": {
+      "*": ["./*"],
+      "@/*": ["./src/*"],
+      "@workspace/core/*": ["../../packages/core/src/*"]
+    }
+  }
+}
+```
+
+**Usage:**
+
+```typescript
+// Without aliases
+import { ENV } from "../../../core/constants/env";
+import { logger } from "../../../../packages/core/src/utils/logger";
+
+// ✅ With aliases
+import { ENV } from "@/core/constants/env";
+import { logger } from "@workspace/core/utils/logger";
+```
+
+### Package Aliases
+
+```json packages/core/tsconfig.json
+{
+  "compilerOptions": {
+    "paths": {
+      "@workspace/core/*": ["./src/*"]
+    }
+  }
+}
+```
+
+Enables consistent imports within the package:
+
+```typescript
+// Internal import within @workspace/core
+import { httpService } from "@workspace/core/services/http";
+```
+
+<Warning>
+  Path aliases are resolved at compile time by TypeScript. Runtime environments (Node.js, Bun) need additional configuration or bundlers that support path mapping.
+</Warning>
+
+## JSX Configuration
+
+The Hono app uses JSX for templating:
+
+```json apps/hono/tsconfig.json
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx"
+  }
+}
+```
+
+- `jsx: "react-jsx"`: Uses the modern JSX transform
+- `jsxImportSource: "hono/jsx"`: Uses Hono's JSX runtime instead of React
+
+**Usage:**
+
+```typescript
+// No need to import React
+export function HomePage({ title }: { title: string }) {
+  return (
+    <html>
+      <head>
+        <title>{title}</title>
+      </head>
+      <body>
+        <h1>{title}</h1>
+      </body>
+    </html>
+  );
+}
+```
+
+## Include and Exclude Patterns
+
+### Application Includes
+
+```json
+{
+  "include": ["**/*.ts", "**/*.tsx", "**/*.spec.ts", "**/*.json"],
+  "exclude": ["node_modules", "dist"]
+}
+```
+
+- Includes all TypeScript files
+- Includes test files (`*.spec.ts`)
+- Includes JSON files (for `resolveJsonModule`)
+- Excludes build artifacts and dependencies
+
+### Package Includes
+
+```json
+{
+  "include": ["."],
+  "exclude": ["node_modules", "dist"]
+}
+```
+
+Simpler pattern for packages that use explicit `rootDir`.
+
+## Type-Only Imports
+
+With `verbatimModuleSyntax: true`, distinguish between type and value imports:
+
+```typescript
+// ❌ Ambiguous: Is User a type or value?
+import { User } from "./types";
+
+// ✅ Explicit: User is a type only
+import type { User } from "./types";
+
+// ✅ Explicit: Both type and value
+import { type User, createUser } from "./types";
+```
+
+<Info>
+  Type-only imports are completely erased at runtime, improving bundle size and avoiding circular dependency issues.
+</Info>
+
+## Runtime Type Safety
+
+TypeScript provides compile-time safety, but runtime validation is separate:
+
+```typescript
+import { z } from "zod";
+
+// TypeScript type
+interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
+// Runtime validator
+const UserSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  email: z.string().email(),
+});
+
+// Validate external data at runtime
+function createUser(data: unknown): User {
+  // Throws if data doesn't match schema
+  return UserSchema.parse(data);
+}
+```
+
+The monorepo uses Zod throughout for runtime validation:
+- Environment variables (`apps/hono/src/core/constants/env.ts`)
+- API request/response bodies
+- Database query results
+
+## Best Practices
+
+### 1. Never Use `any`
+
+```typescript
+// ❌ Avoid
+function process(data: any) {
+  return data.value;
+}
+
+// ✅ Use unknown for truly unknown types
+function process(data: unknown) {
+  if (typeof data === "object" && data !== null && "value" in data) {
+    return (data as { value: string }).value;
+  }
+  throw new Error("Invalid data");
+}
+
+// ✅ Better: Use generics
+function process<T extends { value: string }>(data: T) {
+  return data.value;
+}
+```
+
+### 2. Enable All Strict Checks
+
+Don't override strict settings to `false` in individual packages:
+
+```json
+// ❌ Don't do this
+{
+  "compilerOptions": {
+    "strict": false,
+    "noUncheckedIndexedAccess": false
+  }
+}
+
+// ✅ Keep strict settings from shared config
+{
+  "extends": "@workspace/typescript-config/node.json"
+}
+```
+
+### 3. Use Type Guards
+
+Narrow types properly instead of type assertions:
+
+```typescript
+// ❌ Unsafe type assertion
+function getName(user: unknown): string {
+  return (user as { name: string }).name;
+}
+
+// ✅ Type guard
+function isUser(value: unknown): value is { name: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "name" in value &&
+    typeof value.name === "string"
+  );
+}
+
+function getName(user: unknown): string {
+  if (!isUser(user)) {
+    throw new Error("Invalid user");
+  }
+  return user.name; // ✅ TypeScript knows user is { name: string }
+}
+```
+
+### 4. Leverage Discriminated Unions
+
+```typescript
+type Result<T, E> =
+  | { success: true; data: T }
+  | { success: false; error: E };
+
+function processResult<T>(result: Result<T, Error>) {
+  if (result.success) {
+    // TypeScript knows: result.data exists
+    console.log(result.data);
+  } else {
+    // TypeScript knows: result.error exists
+    console.error(result.error.message);
+  }
+}
+```
+
+### 5. Use const Assertions
+
+```typescript
+// Type: string[]
+const timezones = ["WIB", "WITA", "WIT"];
+
+// Type: readonly ["WIB", "WITA", "WIT"]
+const timezones = ["WIB", "WITA", "WIT"] as const;
+
+// Use for string literal unions
+type Timezone = typeof timezones[number]; // "WIB" | "WITA" | "WIT"
+```
+
+## Type Checking Commands
+
+The monorepo provides convenient type checking commands:
+
+### Root Level
+
+```bash
+# Type check all packages
+bun typecheck
+
+# Equivalent to
+bun run --parallel hono:typecheck
+```
+
+### Application Level
+
+```bash
+# Type check the Hono app
+cd apps/hono
+bun typecheck
+
+# Or from root
+bun hono:typecheck
+```
+
+### Watch Mode
+
+TypeScript can watch for changes:
+
+```bash
+# In apps/hono
+tsc --noEmit --watch
+```
+
+<Tip>
+  Most IDEs (VS Code, WebStorm) provide real-time type checking. The CLI commands are primarily for CI/CD pipelines.
+</Tip>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Cannot find module '@workspace/core'">
+    **Cause**: TypeScript can't resolve workspace packages.
+    
+    **Solution**:
+    1. Ensure `bun install` was run from the root
+    2. Check `paths` in `tsconfig.json`:
+       ```json
+       {
+         "paths": {
+           "@workspace/core/*": ["../../packages/core/src/*"]
+         }
+       }
+       ```
+    3. Restart your IDE's TypeScript server
+  </Accordion>
+
+  <Accordion title="Type errors in node_modules">
+    **Cause**: Third-party package has type issues.
+    
+    **Solution**:
+    - Already handled by `"skipLibCheck": true` in base config
+    - If still seeing errors, the issue is in your code importing from that package
+  </Accordion>
+
+  <Accordion title="Index signature error with noUncheckedIndexedAccess">
+    **Cause**: Accessing array/object by index without checking for undefined.
+    
+    **Solution**:
+    ```typescript
+    const items = ["a", "b", "c"];
+    
+    // ❌ Error
+    const item = items[0];
+    item.toUpperCase();
+    
+    // ✅ Fix 1: Check for undefined
+    const item = items[0];
+    if (item) {
+      item.toUpperCase();
+    }
+    
+    // ✅ Fix 2: Use optional chaining
+    items[0]?.toUpperCase();
+    
+    // ✅ Fix 3: Non-null assertion (if certain it exists)
+    items[0]!.toUpperCase();
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="gear" href="/concepts/environment-variables">
+    Learn about environment variable configuration
+  </Card>
+  <Card title="Monorepo Architecture" icon="layer-group" href="/concepts/monorepo-architecture">
+    Understand the workspace structure
+  </Card>
+</CardGroup>

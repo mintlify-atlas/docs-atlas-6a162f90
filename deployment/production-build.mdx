@@ -1,0 +1,307 @@
+---
+title: 'Production Build'
+description: 'Building and running the application in production mode'
+icon: 'hammer'
+---
+
+## Overview
+
+The BE Monorepo provides multiple build and deployment options for production environments, supporting both Bun and Node.js runtimes.
+
+## Build Scripts
+
+### Node.js Production Build
+
+The recommended approach for production deployments uses TypeScript compilation:
+
+```bash
+# Build for production
+bun run node:build:prod
+
+# Start production server
+bun run node:start:prod
+```
+
+#### Build Process
+
+The `node:build:prod` script is defined in `apps/hono/package.json`:
+
+```json
+"node:build:prod": "dotenvx run --env-file=.env.prod -- tsc -p ."
+```
+
+This command:
+1. Loads production environment variables from `.env.prod`
+2. Compiles TypeScript using the project's `tsconfig.json`
+3. Outputs compiled JavaScript to the `dist/` directory
+
+### TypeScript Configuration
+
+The build uses the following TypeScript configuration (`apps/hono/tsconfig.json`):
+
+```json
+{
+  "extends": "@workspace/typescript-config/node.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+    "declaration": false,
+    "declarationMap": false,
+    "resolveJsonModule": true,
+    "types": ["bun"],
+    "paths": {
+      "*": ["./*"],
+      "@/*": ["./src/*"],
+      "@workspace/core/*": ["../../packages/core/src/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", "**/*.spec.ts", "**/*.json"],
+  "exclude": ["node_modules", "dist"]
+}
+```
+
+## Development vs Production Scripts
+
+### Bun Runtime
+
+**Development:**
+```bash
+bun run dev
+# Uses: bun run --env-file=.env.dev --hot --preload src/instrumentation.ts src/bun.ts
+```
+
+**Production:**
+```bash
+bun run dev:prod
+# Uses: bun run --env-file=.env.prod --hot --preload src/instrumentation.ts src/bun.ts
+```
+
+### Node.js Runtime
+
+**Development:**
+```bash
+bun run node:dev
+# Uses: dotenvx run --env-file=.env.dev -- tsx watch --import src/instrumentation.ts src/node.ts
+```
+
+**Development (Production Config):**
+```bash
+bun run node:dev:prod
+# Uses: dotenvx run --env-file=.env.prod -- tsx watch --import src/instrumentation.ts src/node.ts
+```
+
+**Production:**
+```bash
+# Build
+bun run node:build:prod
+
+# Start
+bun run node:start:prod
+# Uses: dotenvx run --env-file=.env.prod -- node ./dist/node.js
+```
+
+## Environment Configuration
+
+### Environment Files
+
+The application uses separate environment files for different stages:
+
+- `.env.dev` - Development configuration
+- `.env.prod` - Production configuration
+
+Create your production environment file based on `.env.example`:
+
+```bash
+cp apps/hono/.env.example apps/hono/.env.prod
+```
+
+### Required Environment Variables
+
+```env
+# APP
+APP_TITLE="Hono API"
+APP_URL=https://your-production-domain.com
+
+# DATABASE
+DATABASE_URL="postgres://user:password@host:5432/database"
+
+# BETTER AUTH
+BETTER_AUTH_SECRET=your-secure-secret-key
+
+# OTEL (OpenTelemetry)
+OTEL_LOG_LEVEL="ERROR"
+```
+
+<Warning>
+Never commit `.env.dev` or `.env.prod` files to version control. Use `.env.example` as a template.
+</Warning>
+
+## Build Optimization
+
+### Clean Build
+
+Remove all build artifacts and dependencies:
+
+```bash
+bun clean
+```
+
+This script removes:
+- `node_modules/`
+- `dist/` and `dev-dist/`
+- `build/` and `dev-build/`
+- `bun.lock`
+- Clears Bun package manager cache
+
+### TypeScript Compilation
+
+The production build is optimized with:
+- No declaration files (`"declaration": false`)
+- No declaration maps (`"declarationMap": false`)
+- Path aliases for clean imports
+- Exclusion of test files in production
+
+### Build Output
+
+Compiled files are output to `apps/hono/dist/` with the following structure:
+
+```
+app/hono/dist/
+├── node.js           # Production entry point
+├── bun.js            # Bun runtime entry
+├── instrumentation.js # OpenTelemetry setup
+└── [other compiled files]
+```
+
+## Deployment Checklist
+
+<Steps>
+  <Step title="Environment Setup">
+    Create and configure `.env.prod` with production values
+  </Step>
+  
+  <Step title="Dependencies">
+    Install production dependencies:
+    ```bash
+    bun install --production
+    ```
+  </Step>
+  
+  <Step title="Build">
+    Compile TypeScript for production:
+    ```bash
+    bun run node:build:prod
+    ```
+  </Step>
+  
+  <Step title="Database Migration">
+    Run database migrations:
+    ```bash
+    bun run hono:ci db:migrate
+    ```
+  </Step>
+  
+  <Step title="Start Server">
+    Launch the production server:
+    ```bash
+    bun run node:start:prod
+    ```
+  </Step>
+</Steps>
+
+## Performance Considerations
+
+### Runtime Selection
+
+**Node.js** (Recommended for Production):
+- Better production stability
+- More mature ecosystem
+- Better OpenTelemetry support
+- Standard for containerized deployments
+
+**Bun** (Alternative):
+- Faster development iteration
+- Better performance for certain workloads
+- Still maturing for production use
+
+### Production Optimizations
+
+1. **Enable compression** - Use middleware for response compression
+2. **Connection pooling** - Configure database connection pools
+3. **Caching** - Leverage Redis for session and data caching
+4. **Load balancing** - Use multiple instances behind a load balancer
+5. **Monitoring** - Enable OpenTelemetry for observability
+
+## Running in Production
+
+### Process Manager
+
+Use a process manager like PM2 for Node.js:
+
+```bash
+npm install -g pm2
+
+# Start with PM2
+pm2 start "bun run node:start:prod" --name hono-api
+
+# View logs
+pm2 logs hono-api
+
+# Monitor
+pm2 monit
+```
+
+### Systemd Service
+
+Create a systemd service file (`/etc/systemd/system/hono-api.service`):
+
+```ini
+[Unit]
+Description=Hono API Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/path/to/be-monorepo/apps/hono
+ExecStart=/usr/bin/bun run node:start:prod
+Restart=on-failure
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+
+```bash
+sudo systemctl enable hono-api
+sudo systemctl start hono-api
+sudo systemctl status hono-api
+```
+
+## Health Checks
+
+Implement health check endpoints for production monitoring:
+
+```typescript
+// Typical health check endpoint
+app.get('/health', (c) => {
+  return c.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  })
+})
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Setup" icon="docker" href="/deployment/docker">
+    Configure Docker containers for deployment
+  </Card>
+  <Card title="CI/CD" icon="github" href="/deployment/ci-cd">
+    Automate builds and deployments
+  </Card>
+</CardGroup>

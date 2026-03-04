@@ -1,0 +1,428 @@
+---
+title: OpenAPI Documentation
+description: Automatic API documentation generation with Scalar UI
+---
+
+The Hono app automatically generates OpenAPI 3.1 documentation using `@hono/zod-openapi` and serves it with Scalar UI.
+
+## OpenAPI Endpoints
+
+The app exposes several OpenAPI endpoints configured in `src/routes/index.ts:15`:
+
+### `/openapi` - OpenAPI JSON Spec
+
+Serves the OpenAPI 3.1 specification:
+
+```typescript
+app.doc("/openapi", {
+  openapi: "3.1.0",
+  info: {
+    title: ENV.APP_TITLE,
+    version: `v${SERVICE_VERSION}`,
+    description: "API documentation for the Hono app",
+  },
+  servers: [
+    {
+      url: "http://localhost:3333",
+      description: "Local server",
+    },
+  ],
+});
+```
+
+Access at: `http://localhost:3333/openapi`
+
+### `/openapi/docs` - Scalar UI
+
+Serves interactive API documentation using Scalar:
+
+```typescript
+import { Scalar } from "@scalar/hono-api-reference";
+
+app.get(
+  "/openapi/docs",
+  Scalar({
+    theme: "elysiajs",
+    pageTitle: ENV.APP_TITLE,
+    sources: [
+      {
+        title: ENV.APP_TITLE,
+        url: "/openapi",
+      },
+      // BetterAuth schema generation endpoint
+      {
+        url: "/api/auth/open-api/generate-schema",
+        title: `${ENV.APP_TITLE} (Auth)`,
+      },
+    ],
+  })
+);
+```
+
+Access at: `http://localhost:3333/openapi/docs`
+
+## Scalar Features
+
+The Scalar UI provides:
+
+- **Interactive API explorer** - Test endpoints directly from the browser
+- **Multiple API sources** - Combines app routes and BetterAuth routes
+- **Beautiful UI** - Using the "elysiajs" theme
+- **Request examples** - Auto-generated code samples
+- **Schema validation** - Live validation of requests
+- **Response examples** - View possible responses
+
+## Defining OpenAPI Routes
+
+Use `createRoute` from `@hono/zod-openapi` with Zod schemas (`src/routes/llms-docs.ts:41`):
+
+```typescript
+import { createRoute, z } from "@hono/zod-openapi";
+
+app.openapi(
+  createRoute({
+    method: "get",
+    path: "/llms-docs",
+    summary: "LLMs Docs",
+    description: "Get the combined content of the docs folder.",
+    responses: {
+      200: {
+        description: "Successful get the combined content of the docs",
+        content: {
+          "application/json": {
+            schema: z.object({
+              text: z.string().openapi({
+                description: "The generated text",
+              }),
+              length: z.number().openapi({
+                description: "The length of the generated text",
+              }),
+              tokens: z.number().openapi({
+                description: "The number of tokens in the generated text",
+              }),
+            }),
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    // Handler implementation
+    return c.json({
+      text: "...",
+      length: 100,
+      tokens: 25,
+    });
+  }
+);
+```
+
+## Schema Definition Patterns
+
+### Request Body Schema
+
+```typescript
+import { createRoute, z } from "@hono/zod-openapi";
+
+app.openapi(
+  createRoute({
+    method: "post",
+    path: "/users",
+    summary: "Create User",
+    request: {
+      body: {
+        content: {
+          "application/json": {
+            schema: z.object({
+              email: z.string().email().openapi({
+                description: "User email address",
+                example: "user@example.com",
+              }),
+              name: z.string().min(1).openapi({
+                description: "User full name",
+                example: "John Doe",
+              }),
+            }),
+          },
+        },
+      },
+    },
+    responses: {
+      201: {
+        description: "User created successfully",
+        content: {
+          "application/json": {
+            schema: z.object({
+              id: z.string().openapi({ description: "User ID" }),
+              email: z.string().openapi({ description: "User email" }),
+            }),
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    const { email, name } = c.req.valid("json");
+    // Create user...
+    return c.json({ id: "123", email }, 201);
+  }
+);
+```
+
+### Query Parameters
+
+```typescript
+app.openapi(
+  createRoute({
+    method: "get",
+    path: "/users",
+    summary: "List Users",
+    request: {
+      query: z.object({
+        page: z.string().optional().openapi({
+          description: "Page number",
+          example: "1",
+        }),
+        limit: z.string().optional().openapi({
+          description: "Items per page",
+          example: "10",
+        }),
+      }),
+    },
+    responses: {
+      200: {
+        description: "List of users",
+        content: {
+          "application/json": {
+            schema: z.object({
+              users: z.array(z.object({
+                id: z.string(),
+                email: z.string(),
+              })),
+              total: z.number(),
+            }),
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    const { page, limit } = c.req.valid("query");
+    // Fetch users...
+    return c.json({ users: [], total: 0 });
+  }
+);
+```
+
+### Path Parameters
+
+```typescript
+app.openapi(
+  createRoute({
+    method: "get",
+    path: "/users/{id}",
+    summary: "Get User",
+    request: {
+      params: z.object({
+        id: z.string().openapi({
+          description: "User ID",
+          example: "123",
+        }),
+      }),
+    },
+    responses: {
+      200: {
+        description: "User details",
+        content: {
+          "application/json": {
+            schema: z.object({
+              id: z.string(),
+              email: z.string(),
+            }),
+          },
+        },
+      },
+      404: {
+        description: "User not found",
+        content: {
+          "application/json": {
+            schema: z.object({
+              message: z.string(),
+            }),
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    const { id } = c.req.valid("param");
+    // Fetch user...
+    return c.json({ id, email: "user@example.com" });
+  }
+);
+```
+
+### Response Headers
+
+```typescript
+app.openapi(
+  createRoute({
+    method: "get",
+    path: "/download",
+    summary: "Download File",
+    responses: {
+      200: {
+        description: "File downloaded",
+        headers: z.object({
+          "Content-Disposition": z.string().openapi({
+            description: "Attachment filename",
+          }),
+          "Content-Type": z.string().openapi({
+            description: "File MIME type",
+          }),
+        }),
+        content: {
+          "application/octet-stream": {
+            schema: z.string(),
+          },
+        },
+      },
+    },
+  }),
+  async (c) => {
+    return c.body("file content", {
+      headers: {
+        "Content-Disposition": 'attachment; filename="file.txt"',
+        "Content-Type": "text/plain",
+      },
+    });
+  }
+);
+```
+
+## LLMs.txt - OpenAPI for AI
+
+The app exposes OpenAPI docs as markdown for LLMs at `/llms.txt` (`src/routes/llms-docs.ts:128`):
+
+```typescript
+import { createMarkdownFromOpenApi } from "@scalar/openapi-to-markdown";
+
+// Get OpenAPI spec as JSON
+const openapiObject = app.getOpenAPI31Document({
+  openapi: "3.1.0",
+  info: {
+    title: ENV.APP_TITLE,
+    version: `v${SERVICE_VERSION}`,
+  },
+});
+
+// Convert to Markdown
+const markdown = await createMarkdownFromOpenApi(
+  JSON.stringify(openapiObject)
+);
+
+// Serve as plain text
+app.openapi(
+  createRoute({
+    method: "get",
+    path: "/llms.txt",
+    summary: "OpenAPI docs",
+    description: "Markdown version of the OpenAPI docs, which can be used for LLMs.",
+    responses: {
+      200: {
+        description: "Successful get the markdown version of the OpenAPI docs",
+        content: {
+          "text/plain": {
+            schema: z.string().openapi({
+              description: "The markdown version of the OpenAPI docs",
+            }),
+          },
+        },
+      },
+    },
+  }),
+  (c) => c.text(markdown)
+);
+```
+
+This follows the [llmstxt.org](https://llmstxt.org/) proposal for standardizing LLM-friendly API documentation.
+
+### BetterAuth OpenAPI
+
+The app also exposes BetterAuth routes as markdown at `/llms-auth.txt` (`src/routes/llms-docs.ts:97`):
+
+```typescript
+import { auth } from "@/auth/libs/index.js";
+
+const betterauthOpenapiObject = await auth.api.generateOpenAPISchema();
+const betterauthMarkdown = await createMarkdownFromOpenApi(
+  JSON.stringify(betterauthOpenapiObject)
+);
+
+app.openapi(
+  createRoute({
+    method: "get",
+    path: "/llms-auth.txt",
+    summary: "BetterAuth OpenAPI docs",
+    description: "Markdown version of the BetterAuth OpenAPI docs, which can be used for LLMs.",
+    responses: {
+      200: {
+        description: "Successful get the markdown version of the BetterAuth OpenAPI docs",
+        content: {
+          "text/plain": {
+            schema: z.string().openapi({
+              description: "The markdown version of the BetterAuth OpenAPI docs",
+            }),
+          },
+        },
+      },
+    },
+  }),
+  (c) => c.text(betterauthMarkdown)
+);
+```
+
+## Programmatic Access
+
+### Get OpenAPI Document
+
+```typescript
+const openapiDoc = app.getOpenAPI31Document({
+  openapi: "3.1.0",
+  info: {
+    title: "My API",
+    version: "1.0.0",
+  },
+});
+
+console.log(JSON.stringify(openapiDoc, null, 2));
+```
+
+### Export to File
+
+```typescript
+import { writeFile } from "node:fs/promises";
+
+const openapiDoc = app.getOpenAPI31Document({
+  openapi: "3.1.0",
+  info: {
+    title: "My API",
+    version: "1.0.0",
+  },
+});
+
+await writeFile(
+  "openapi.json",
+  JSON.stringify(openapiDoc, null, 2)
+);
+```
+
+## Best Practices
+
+1. **Always use `.openapi()` descriptions** - Provide clear descriptions for all fields
+2. **Include examples** - Use `.openapi({ example: "..." })` for better docs
+3. **Document error responses** - Define all possible status codes
+4. **Use meaningful summaries** - Keep route summaries concise and descriptive
+5. **Group related routes** - Use path prefixes to organize routes
+6. **Version your API** - Include version in OpenAPI info
+7. **Test in Scalar UI** - Always verify docs render correctly

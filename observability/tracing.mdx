@@ -1,0 +1,414 @@
+---
+title: Tracing
+description: Distributed tracing with OpenTelemetry
+---
+
+## Overview
+
+Distributed tracing allows you to track requests as they flow through your application, providing visibility into performance bottlenecks and request lifecycles.
+
+## Automatic Instrumentation
+
+The application automatically instruments common operations through the OpenTelemetry Node SDK.
+
+### Instrumented Operations
+
+Configured in `src/instrumentation.ts`:
+
+```typescript
+import { NodeSDK } from "@opentelemetry/sdk-node";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import { resourceFromAttributes } from "@opentelemetry/resources";
+import {
+  ATTR_SERVICE_NAME,
+  ATTR_SERVICE_VERSION,
+} from "@opentelemetry/semantic-conventions";
+import {
+  HttpInstrumentation,
+  NetInstrumentation,
+  DnsInstrumentation,
+  PgInstrumentation,
+  RuntimeNodeInstrumentation,
+  UndiciInstrumentation,
+} from "@opentelemetry/instrumentation-*";
+
+const sdk = new NodeSDK({
+  resource: resourceFromAttributes({
+    [ATTR_SERVICE_NAME]: SERVICE_NAME,
+    [ATTR_SERVICE_VERSION]: SERVICE_VERSION,
+  }),
+  traceExporter: new OTLPTraceExporter(),
+  instrumentations: [
+    new DnsInstrumentation(),
+    new HttpInstrumentation({
+      ignoreIncomingRequestHook: (request) => {
+        const openApiRegex = /^\/openapi(?:\/.*)?$/;
+        const wellKnownRegex = /^\/\.well-known\/.*/;
+        const imageRegex = /\.(?:png|jpg|jpeg|gif|svg|ico|webp)$/i;
+
+        return (
+          openApiRegex.test(request.url ?? "") ||
+          wellKnownRegex.test(request.url ?? "") ||
+          imageRegex.test(request.url ?? "")
+        );
+      },
+    }),
+    new NetInstrumentation(),
+    new PgInstrumentation({
+      enhancedDatabaseReporting: true,
+      addSqlCommenterCommentToQueries: true,
+    }),
+    new RuntimeNodeInstrumentation(),
+    new UndiciInstrumentation(),
+  ],
+});
+
+sdk.start();
+```
+
+See `src/instrumentation.ts:88`
+
+### Automatic Instrumentation Includes
+
+1. **HTTP Instrumentation**: Tracks all HTTP requests and responses
+2. **PostgreSQL Instrumentation**: Traces database queries with SQL comments
+3. **DNS Instrumentation**: Tracks DNS lookups
+4. **Network Instrumentation**: Low-level network operations
+5. **Undici Instrumentation**: Modern HTTP client instrumentation
+6. **Runtime Instrumentation**: Node.js runtime metrics
+
+### Filtering Traced Requests
+
+The HTTP instrumentation filters out certain requests:
+
+- OpenAPI documentation endpoints (`/openapi/*`)
+- Well-known paths (`/.well-known/*`)
+- Static image files (`.png`, `.jpg`, `.svg`, etc.)
+
+## HTTP Request Middleware
+
+The Hono app uses `@hono/otel` for HTTP instrumentation:
+
+```typescript
+import { httpInstrumentationMiddleware } from "@hono/otel";
+import { OpenAPIHono } from "@hono/zod-openapi";
+
+const app = new OpenAPIHono();
+
+app.use(
+  "*",
+  httpInstrumentationMiddleware({
+    serviceName: SERVICE_NAME,
+    serviceVersion: SERVICE_VERSION,
+  })
+);
+```
+
+See `src/app.ts:35`
+
+This middleware:
+- Creates a span for each HTTP request
+- Captures HTTP method, route, and status code
+- Automatically handles errors and exceptions
+- Propagates trace context to downstream services
+
+## Manual Span Creation
+
+You can create custom spans for specific operations using the telemetry utilities.
+
+### Getting a Tracer
+
+From `src/core/utils/telemetry.ts`:
+
+```typescript
+import { trace } from "@opentelemetry/api";
+import { getTracer } from "@/core/utils/telemetry.js";
+
+// Get a tracer instance
+const tracer = getTracer({
+  isEnabled: true,
+  tracer: trace.getTracer('custom-component'),
+});
+```
+
+See `src/core/utils/telemetry.ts:95`
+
+### Recording Spans
+
+Use the `recordSpan` utility to wrap async operations:
+
+```typescript
+import { recordSpan } from "@/core/utils/telemetry.js";
+import { trace } from "@opentelemetry/api";
+
+const result = await recordSpan({
+  name: 'process-payment',
+  tracer: trace.getTracer('payment-service'),
+  attributes: {
+    'payment.amount': 100,
+    'payment.currency': 'USD',
+    'user.id': userId,
+  },
+  fn: async (span) => {
+    // Your operation here
+    const payment = await processPayment();
+    
+    // Add more attributes during execution
+    span.setAttribute('payment.id', payment.id);
+    
+    return payment;
+  },
+  endWhenDone: true,
+});
+```
+
+See `src/core/utils/telemetry.ts:129`
+
+### Span Options
+
+- `name`: The name of the span (e.g., `'db.query'`, `'api.call'`)
+- `tracer`: The tracer instance to use
+- `attributes`: Key-value pairs to attach to the span
+- `fn`: The async function to execute within the span
+- `endWhenDone`: Whether to automatically end the span (default: `true`)
+
+## Span Attributes
+
+Spans can include attributes for filtering and analysis.
+
+### Flattening Nested Objects
+
+Use `flattenAttributes` or `flattenAttributesV2` to convert complex objects:
+
+```typescript
+import { flattenAttributes } from "@/core/utils/telemetry.js";
+
+const attributes = flattenAttributes({
+  user: {
+    id: '123',
+    email: 'user@example.com',
+  },
+  order: {
+    items: [{ id: 1, name: 'Item 1' }],
+    total: 100,
+  }
+}, { maxDepth: 3 });
+
+// Result:
+// {
+//   'user.id': '123',
+//   'user.email': 'user@example.com',
+//   'order.items.0.id': '1',
+//   'order.items.0.name': 'Item 1',
+//   'order.total': '100',
+// }
+```
+
+See `src/core/utils/telemetry.ts:207`
+
+### Array Handling
+
+The flattening utilities handle arrays intelligently:
+
+- **Small arrays** (≤5 items): Each item is flattened individually
+- **Large arrays**: Only length and preview (first 3 items) are included
+
+```typescript
+const attributes = flattenAttributes({
+  items: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+});
+
+// Result:
+// {
+//   'items.length': '10',
+//   'items.preview': '[1,2,3]...'
+// }
+```
+
+## Error Handling in Spans
+
+The `recordSpan` utility automatically handles errors:
+
+```typescript
+try {
+  const result = await recordSpan({
+    name: 'risky-operation',
+    tracer: trace.getTracer('app'),
+    attributes: { operation: 'delete' },
+    fn: async (span) => {
+      throw new Error('Something went wrong');
+    },
+  });
+} catch (error) {
+  // Error is automatically recorded in span
+  // Span status is set to ERROR
+  // Span is ended automatically
+}
+```
+
+See `src/core/utils/telemetry.ts:169`
+
+The error handling:
+1. Records the exception with name, message, and stack trace
+2. Sets span status to `ERROR`
+3. Ends the span automatically
+4. Re-throws the error for normal handling
+
+## Trace Context Propagation
+
+Trace context is automatically propagated through:
+
+### HTTP Headers
+
+The `traceparent` and `tracestate` headers are automatically added to outgoing requests:
+
+```
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+```
+
+### Async Operations
+
+Using Hono's `contextStorage()` middleware, context is preserved across async boundaries:
+
+```typescript
+import { contextStorage } from "hono/context-storage";
+
+app.use("*", contextStorage());
+```
+
+See `src/app.ts:42`
+
+## PostgreSQL Query Tracing
+
+Database queries are automatically traced with enhanced reporting:
+
+```typescript
+new PgInstrumentation({
+  enhancedDatabaseReporting: true,
+  addSqlCommenterCommentToQueries: true,
+})
+```
+
+See `src/instrumentation.ts:117`
+
+This adds SQL comments with trace information:
+
+```sql
+SELECT * FROM users WHERE id = $1
+/*traceparent='00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'*/
+```
+
+## Noop Tracer
+
+For environments where tracing should be disabled:
+
+```typescript
+import { noopTracer } from "@/core/utils/telemetry.js";
+
+const tracer = getTracer({
+  isEnabled: false, // Uses noopTracer
+});
+```
+
+See `src/core/utils/telemetry.ts:18`
+
+The noop tracer:
+- Has zero performance overhead
+- Implements the full Tracer API
+- Does not create or export spans
+
+## Best Practices
+
+### 1. Use Semantic Naming
+
+Follow OpenTelemetry semantic conventions:
+
+```typescript
+// Good
+recordSpan({ name: 'db.query.users.select', ... })
+recordSpan({ name: 'http.client.post', ... })
+
+// Bad
+recordSpan({ name: 'doStuff', ... })
+```
+
+### 2. Add Relevant Attributes
+
+Include attributes that help with debugging:
+
+```typescript
+recordSpan({
+  name: 'cache.get',
+  attributes: {
+    'cache.key': cacheKey,
+    'cache.hit': true,
+    'cache.ttl': 3600,
+  },
+  // ...
+});
+```
+
+### 3. Keep Span Granularity Balanced
+
+Don't create too many or too few spans:
+
+```typescript
+// Good - meaningful operation
+await recordSpan({ name: 'order.process', ... });
+
+// Bad - too granular
+await recordSpan({ name: 'variable.assignment', ... });
+```
+
+### 4. Use endWhenDone Appropriately
+
+Set `endWhenDone: false` only when you need manual control:
+
+```typescript
+await recordSpan({
+  name: 'streaming-response',
+  endWhenDone: false, // Manual control needed
+  fn: async (span) => {
+    // Start streaming
+    stream.on('end', () => span.end());
+  },
+});
+```
+
+## Viewing Traces in Grafana
+
+Traces are exported to Tempo and viewable in Grafana:
+
+1. Navigate to `http://localhost:3111`
+2. Go to Explore → Tempo
+3. Search by:
+   - Trace ID
+   - Service name
+   - Operation name
+   - Attributes
+
+See [Grafana Setup](/observability/grafana-setup) for detailed instructions.
+
+## Configuration
+
+```bash
+# Enable/disable tracing
+OTEL_TRACES_ENABLED=true
+
+# OTLP endpoint
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+
+# Trace sampling rate (0.0 to 1.0)
+OTEL_TRACES_SAMPLER=parentbased_always_on
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Metrics" icon="chart-line" href="/observability/metrics">
+    Learn about metrics collection
+  </Card>
+  <Card title="Grafana Setup" icon="server" href="/observability/grafana-setup">
+    Visualize traces in Grafana
+  </Card>
+</CardGroup>

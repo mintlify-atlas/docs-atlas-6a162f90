@@ -1,0 +1,629 @@
+---
+title: 'Utilities'
+description: 'Utility functions for common operations'
+icon: 'wrench'
+---
+
+## Overview
+
+The Core Package provides a comprehensive set of utility functions for common operations including data transformation, validation, formatting, and logging.
+
+## Core Utilities
+
+### Import
+
+```typescript
+import {
+  clamp,
+  indonesianPhoneNumberFormat,
+  toCamelCase,
+  toSnakeCase,
+  removeLeadingZeros,
+  removeLeadingWhitespace,
+  objectToFormData,
+  objectToFormDataArrayWithComma,
+  deepReadObject
+} from '@workspace/core/utils/core';
+```
+
+### clamp
+
+Clamps a numeric value to a specified range.
+
+<ParamField path="options.value" type="number" required>
+  The value to clamp
+</ParamField>
+
+<ParamField path="options.min" type="number" required>
+  The minimum allowed value
+</ParamField>
+
+<ParamField path="options.max" type="number" required>
+  The maximum allowed value
+</ParamField>
+
+<ResponseField name="result" type="number">
+  The clamped value
+</ResponseField>
+
+```typescript
+clamp({ value: 12, min: 0, max: 10 }); // 10
+clamp({ value: -5, min: 0, max: 10 }); // 0
+clamp({ value: 5, min: 0, max: 10 });  // 5
+
+// Use for input validation
+const opacity = clamp({ value: userInput, min: 0, max: 1 });
+const volume = clamp({ value: slider.value, min: 0, max: 100 });
+```
+
+### indonesianPhoneNumberFormat
+
+Formats Indonesian phone numbers with dashes for better readability.
+
+<ParamField path="phoneNumber" type="string" required>
+  Phone number including "+62" prefix (11-15 characters total)
+</ParamField>
+
+<ResponseField name="result" type="string">
+  Formatted phone number with dashes (e.g., "+62-812-7363-6365")
+</ResponseField>
+
+```typescript
+indonesianPhoneNumberFormat('+628127363636');   // '+62-812-736-3636'
+indonesianPhoneNumberFormat('+6281273636365');  // '+62-812-7363-6365'
+indonesianPhoneNumberFormat('+62812736363654'); // '+62-812-73636-3654'
+
+// Use in display components
+const displayPhone = indonesianPhoneNumberFormat(user.phoneNumber);
+```
+
+### toCamelCase
+
+Converts deep nested object keys from snake_case or kebab-case to camelCase.
+
+<ParamField path="object" type="unknown" required>
+  Object, array, or primitive to convert
+</ParamField>
+
+<ResponseField name="result" type="T">
+  Transformed object with camelCase keys
+</ResponseField>
+
+```typescript
+const snakeCase = {
+  user_name: 'John',
+  user_email: 'john@example.com',
+  user_settings: {
+    email_notifications: true,
+    push_notifications: false
+  },
+  user_tags: ['admin', 'verified']
+};
+
+const camelCase = toCamelCase(snakeCase);
+// {
+//   userName: 'John',
+//   userEmail: 'john@example.com',
+//   userSettings: {
+//     emailNotifications: true,
+//     pushNotifications: false
+//   },
+//   userTags: ['admin', 'verified']
+// }
+
+// Use with API responses
+const response = await fetch('/api/users');
+const data = await response.json();
+const users = toCamelCase<User[]>(data);
+```
+
+### toSnakeCase
+
+Converts deep nested object keys from camelCase to snake_case.
+
+<ParamField path="object" type="unknown" required>
+  Object, array, or primitive to convert
+</ParamField>
+
+<ResponseField name="result" type="T">
+  Transformed object with snake_case keys
+</ResponseField>
+
+```typescript
+const camelCase = {
+  userName: 'John',
+  userEmail: 'john@example.com',
+  userSettings: {
+    emailNotifications: true,
+    pushNotifications: false
+  }
+};
+
+const snakeCase = toSnakeCase(camelCase);
+// {
+//   user_name: 'John',
+//   user_email: 'john@example.com',
+//   user_settings: {
+//     email_notifications: true,
+//     push_notifications: false
+//   }
+// }
+
+// Use with API requests
+const payload = toSnakeCase(formData);
+await fetch('/api/users', {
+  method: 'POST',
+  body: JSON.stringify(payload)
+});
+```
+
+### removeLeadingZeros
+
+Removes leading zeros from a string while preserving valid values.
+
+<ParamField path="value" type="string" required>
+  String potentially containing leading zeros
+</ParamField>
+
+<ResponseField name="result" type="string">
+  String with leading zeros removed
+</ResponseField>
+
+```typescript
+removeLeadingZeros('0123');   // '123'
+removeLeadingZeros('0000');   // '0'
+removeLeadingZeros('00001');  // '1'
+removeLeadingZeros('123');    // '123'
+removeLeadingZeros('0');      // '0'
+
+// Use in input handlers
+function handleInput(e: ChangeEvent<HTMLInputElement>) {
+  const cleaned = removeLeadingZeros(e.target.value);
+  setValue(cleaned);
+}
+```
+
+### removeLeadingWhitespace
+
+Removes leading whitespace from a string.
+
+<ParamField path="value" type="string | undefined" optional>
+  String potentially containing leading whitespace
+</ParamField>
+
+<ResponseField name="result" type="string">
+  String with leading whitespace removed, or empty string if input is undefined
+</ResponseField>
+
+```typescript
+removeLeadingWhitespace('  hello');    // 'hello'
+removeLeadingWhitespace('\thello');    // 'hello'
+removeLeadingWhitespace('   ');        // ''
+removeLeadingWhitespace(undefined);    // ''
+removeLeadingWhitespace('hello');      // 'hello'
+
+// Use in form validation
+const trimmed = removeLeadingWhitespace(input.value);
+if (trimmed.length === 0) {
+  setError('Field cannot be empty');
+}
+```
+
+### objectToFormData
+
+Converts a deep nested object to FormData with indexed array notation.
+
+<ParamField path="obj" type="T extends UnknownRecord" required>
+  Object to convert to FormData
+</ParamField>
+
+<ParamField path="options.rootName" type="string" optional>
+  Root name prefix for all form data keys
+</ParamField>
+
+<ParamField path="options.ignoreList" type="Array<keyof T>" optional>
+  Array of keys to exclude from the FormData
+</ParamField>
+
+<ResponseField name="result" type="FormData">
+  FormData instance containing the object data
+</ResponseField>
+
+```typescript
+const data = {
+  num: 1,
+  falseBool: false,
+  trueBool: true,
+  empty: '',
+  name: 'John',
+  file: new File(['content'], 'doc.txt', { type: 'text/plain' }),
+  nested: {
+    key: 'value',
+    deep: { prop: 'data' }
+  },
+  items: [
+    { id: 1, name: 'Item 1' },
+    { id: 2, name: 'Item 2' }
+  ]
+};
+
+const formData = objectToFormData(data);
+
+// Results in FormData entries:
+// ['num', '1']
+// ['falseBool', 'false']
+// ['trueBool', 'true']
+// ['empty', '']
+// ['name', 'John']
+// ['file', File]
+// ['nested.key', 'value']
+// ['nested.deep.prop', 'data']
+// ['items[0].id', '1']
+// ['items[0].name', 'Item 1']
+// ['items[1].id', '2']
+// ['items[1].name', 'Item 2']
+
+// Send with fetch or HTTP client
+await fetch('/api/upload', {
+  method: 'POST',
+  body: formData
+});
+
+// With ignore list
+const formData = objectToFormData(data, {
+  ignoreList: ['password', 'token']
+});
+```
+
+### objectToFormDataArrayWithComma
+
+Converts a deep nested object to FormData with comma-separated array values.
+
+<ParamField path="obj" type="T extends UnknownRecord" required>
+  Object to convert to FormData
+</ParamField>
+
+<ParamField path="options.rootName" type="string" optional>
+  Root name prefix for all form data keys
+</ParamField>
+
+<ParamField path="options.ignoreList" type="Array<keyof T>" optional>
+  Array of keys to exclude from the FormData
+</ParamField>
+
+<ResponseField name="result" type="FormData">
+  FormData instance with arrays as comma-separated strings
+</ResponseField>
+
+```typescript
+const data = {
+  name: 'John',
+  tags: ['javascript', 'typescript', 'react'],
+  categories: ['frontend', 'backend'],
+  nested: {
+    items: ['a', 'b', 'c']
+  }
+};
+
+const formData = objectToFormDataArrayWithComma(data);
+
+// Results in FormData entries:
+// ['name', 'John']
+// ['tags', 'javascript,typescript,react']
+// ['categories', 'frontend,backend']
+// ['nested.items', 'a,b,c']
+
+// Useful for APIs that expect comma-separated values
+await fetch('/api/filter', {
+  method: 'POST',
+  body: formData
+});
+```
+
+### deepReadObject
+
+Safely access deeply nested values in an object using a dot-notation path string.
+
+<ParamField path="obj" type="Record<string, unknown>" required>
+  The object to read from
+</ParamField>
+
+<ParamField path="path" type="string" required>
+  Dot-separated path to the property (e.g., "user.address.city")
+</ParamField>
+
+<ParamField path="defaultValue" type="unknown" optional>
+  Default value to return if path doesn't exist
+</ParamField>
+
+<ResponseField name="result" type="T">
+  The value at the path, or defaultValue if not found
+</ResponseField>
+
+```typescript
+const obj = {
+  user: {
+    name: 'John',
+    address: {
+      city: 'Jakarta',
+      country: 'Indonesia'
+    },
+    tags: ['admin', 'verified']
+  }
+};
+
+// Access nested properties
+deepReadObject(obj, 'user.name');              // 'John'
+deepReadObject(obj, 'user.address.city');      // 'Jakarta'
+deepReadObject(obj, 'user.tags');              // ['admin', 'verified']
+
+// Non-existent paths
+deepReadObject(obj, 'user.phone');             // undefined
+deepReadObject(obj, 'user.address.zip');       // undefined
+
+// With default value
+deepReadObject(obj, 'user.phone', 'N/A');      // 'N/A'
+deepReadObject(obj, 'user.age', 0);            // 0
+
+// Type-safe with generics
+const city = deepReadObject<string>(obj, 'user.address.city');
+const tags = deepReadObject<string[]>(obj, 'user.tags', []);
+
+// Use in configuration access
+function getConfig<T>(path: string, defaultValue: T): T {
+  return deepReadObject<T>(appConfig, path, defaultValue);
+}
+
+const apiUrl = getConfig('api.baseUrl', 'https://api.example.com');
+const timeout = getConfig('api.timeout', 30000);
+```
+
+## Date Utilities
+
+### Import
+
+```typescript
+import {
+  isValidTimezoneIANAString,
+  getLocalTimeZone
+} from '@workspace/core/utils/date';
+```
+
+### isValidTimezoneIANAString
+
+Validates if a string is a valid IANA timezone identifier. Results are cached for performance.
+
+<ParamField path="timeZoneString" type="string" required>
+  Timezone string to validate (e.g., "Asia/Jakarta")
+</ParamField>
+
+<ResponseField name="result" type="boolean">
+  True if the timezone is valid, false otherwise
+</ResponseField>
+
+```typescript
+isValidTimezoneIANAString('Asia/Jakarta');        // true
+isValidTimezoneIANAString('America/New_York');    // true
+isValidTimezoneIANAString('Europe/London');       // true
+isValidTimezoneIANAString('Invalid/Timezone');    // false
+isValidTimezoneIANAString('GMT+7');               // false
+
+// Use in timezone selection
+function setUserTimezone(timezone: string) {
+  if (isValidTimezoneIANAString(timezone)) {
+    localStorage.setItem('timezone', timezone);
+  } else {
+    console.error('Invalid timezone:', timezone);
+  }
+}
+
+// Validate user input
+function handleTimezoneInput(value: string) {
+  if (isValidTimezoneIANAString(value)) {
+    setTimezone(value);
+  } else {
+    setError('Please enter a valid timezone');
+  }
+}
+```
+
+### getLocalTimeZone
+
+Gets the local timezone in IANA format. Provides a workaround for Chrome 118 issues with `@internationalized/date`.
+
+<ResponseField name="result" type="string">
+  The local timezone identifier (e.g., "Asia/Jakarta")
+</ResponseField>
+
+```typescript
+const timezone = getLocalTimeZone();
+console.log(timezone); // 'Asia/Jakarta' (or user's local timezone)
+
+// Use with date libraries
+import { ZonedDateTime } from '@internationalized/date';
+
+const now = new ZonedDateTime(
+  Date.now(),
+  getLocalTimeZone()
+);
+
+// Display local time
+function formatLocalTime(date: Date): string {
+  return date.toLocaleString('en-US', {
+    timeZone: getLocalTimeZone()
+  });
+}
+
+// Convert to user's timezone
+function toUserTimezone(utcDate: string): Date {
+  const date = new Date(utcDate);
+  const timezone = getLocalTimeZone();
+  // ... conversion logic
+  return date;
+}
+```
+
+## Invariant Utility
+
+### Import
+
+```typescript
+import { invariant } from '@workspace/core/utils/invariant';
+```
+
+### invariant
+
+Asserts that a condition is truthy. Throws an error if the condition is falsy. Messages are stripped in production builds to reduce bundle size.
+
+<ParamField path="condition" type="any" required>
+  The condition to assert is truthy
+</ParamField>
+
+<ParamField path="message" type="string | (() => string)" optional>
+  Error message or function that returns a message (only in development)
+</ParamField>
+
+```typescript
+const value: Person | null = getPerson();
+invariant(value, 'Expected value to be a person');
+// Type of `value` is now narrowed to `Person`
+
+// Basic usage
+invariant(userId, 'User ID is required');
+invariant(response.ok, 'Request failed');
+
+// With type narrowing
+function processUser(user: User | null) {
+  invariant(user, 'User must be defined');
+  // user is now typed as User (not null)
+  console.log(user.name);
+}
+
+// Lazy message evaluation
+invariant(
+  config.apiKey,
+  () => `API key is required. Available keys: ${Object.keys(config).join(', ')}`
+);
+
+// Guard against null/undefined
+function divide(a: number, b: number): number {
+  invariant(b !== 0, 'Cannot divide by zero');
+  return a / b;
+}
+
+// Array bounds checking
+function getItem<T>(array: T[], index: number): T {
+  invariant(index >= 0 && index < array.length, 'Index out of bounds');
+  return array[index];
+}
+
+// Configuration validation
+function initializeApp(config: AppConfig) {
+  invariant(config.apiUrl, 'API URL must be configured');
+  invariant(config.apiKey, 'API key must be configured');
+  // ... proceed with initialization
+}
+```
+
+## Logger Utility
+
+### Import
+
+```typescript
+import { logger } from '@workspace/core/utils/logger';
+```
+
+Colorized console logger with timestamp formatting.
+
+### logger.debug
+
+Logs debug-level messages in green.
+
+```typescript
+logger.debug('User action', { userId: 123, action: 'click' });
+// [14:23:45.123] DEBUG: User action { userId: 123, action: 'click' }
+
+logger.debug('API request', {
+  method: 'GET',
+  url: '/api/users',
+  params: { page: 1 }
+});
+```
+
+### logger.log
+
+Logs info-level messages in blue.
+
+```typescript
+logger.log('Application started');
+// [14:23:45.123] INFO: Application started
+
+logger.log('User logged in', { userId: 123, timestamp: Date.now() });
+```
+
+### logger.warn
+
+Logs warning messages in yellow.
+
+```typescript
+logger.warn('Deprecated API usage', {
+  api: 'getUserData',
+  alternative: 'fetchUser'
+});
+// [14:23:45.123] WARN: Deprecated API usage { ... }
+
+logger.warn('Rate limit approaching', {
+  current: 95,
+  limit: 100
+});
+```
+
+### logger.error
+
+Logs error messages in red.
+
+```typescript
+logger.error('Failed to fetch data', error);
+// [14:23:45.123] ERROR: Failed to fetch data Error: ...
+
+try {
+  await riskyOperation();
+} catch (error) {
+  logger.error('Operation failed', {
+    error,
+    context: 'user-profile',
+    userId: 123
+  });
+}
+```
+
+### Complete Example
+
+```typescript
+import { logger } from '@workspace/core/utils/logger';
+
+class UserService {
+  async fetchUser(id: string) {
+    logger.debug('Fetching user', { id });
+    
+    try {
+      const response = await fetch(`/api/users/${id}`);
+      
+      if (!response.ok) {
+        logger.warn('User fetch returned non-OK status', {
+          id,
+          status: response.status
+        });
+      }
+      
+      const user = await response.json();
+      logger.log('User fetched successfully', { id, name: user.name });
+      
+      return user;
+    } catch (error) {
+      logger.error('Failed to fetch user', { id, error });
+      throw error;
+    }
+  }
+}
+```

@@ -1,0 +1,401 @@
+---
+title: Metrics
+description: Collecting and exporting metrics with OpenTelemetry
+---
+
+## Overview
+
+Metrics provide quantitative measurements about your application's behavior and performance. The BE Monorepo collects metrics using OpenTelemetry and exports them to Prometheus.
+
+## Automatic Metrics
+
+The OpenTelemetry SDK automatically collects various system and runtime metrics.
+
+### Metric Exporter Configuration
+
+Configured in `src/instrumentation.ts`:
+
+```typescript
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
+import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
+import { NodeSDK } from "@opentelemetry/sdk-node";
+
+const sdk = new NodeSDK({
+  resource: resourceFromAttributes({
+    [ATTR_SERVICE_NAME]: SERVICE_NAME,
+    [ATTR_SERVICE_VERSION]: SERVICE_VERSION,
+  }),
+  metricReaders: [
+    new PeriodicExportingMetricReader({
+      exporter: new OTLPMetricExporter(),
+    }),
+  ],
+  // ... instrumentations
+});
+```
+
+See `src/instrumentation.ts:95`
+
+### Built-in Metrics
+
+The following metrics are automatically collected:
+
+1. **Runtime Metrics**: CPU usage, memory, garbage collection
+2. **HTTP Metrics**: Request count, duration, status codes
+3. **Database Metrics**: Connection pool stats, query duration
+4. **Network Metrics**: DNS lookups, connection stats
+
+## Custom HTTP Metrics Middleware
+
+A custom middleware implementation is available in `src/routes/middlewares/metrics.ts`:
+
+```typescript
+import { performance } from "node:perf_hooks";
+import { metrics, ValueType } from "@opentelemetry/api";
+import type { MiddlewareHandler } from "hono";
+import { routePath } from "hono/route";
+import { SERVICE_NAME, SERVICE_VERSION } from "@/core/constants/global.js";
+
+// Create a meter instance
+const meter = metrics.getMeter(SERVICE_NAME, SERVICE_VERSION);
+
+// Create a histogram for response times
+const responseTimeHistogram = meter.createHistogram(
+  "http_request_duration_metric",
+  {
+    description: "Duration of HTTP requests in milliseconds",
+    unit: "ms",
+    valueType: ValueType.INT,
+  }
+);
+
+// Create a counter for total requests
+const requestCounter = meter.createCounter("http_requests_total_metric", {
+  description: "Total number of HTTP requests",
+});
+
+export function metricsMiddleware(): MiddlewareHandler {
+  return async (c, next) => {
+    const startTime = performance.now();
+    const method = c.req.method;
+    const route = routePath(c) || c.req.path;
+
+    // Increment request counter
+    requestCounter.add(1, { method, route });
+
+    try {
+      await next();
+    } finally {
+      const endTime = performance.now();
+      const responseTime = endTime - startTime;
+      const status = c.res.status.toString();
+      const statusClass = `${Math.floor(c.res.status / 100)}xx`;
+
+      // Record response time
+      responseTimeHistogram.record(responseTime, {
+        method,
+        route,
+        status_code: status,
+        status_class: statusClass,
+      });
+    }
+  };
+}
+```
+
+See `src/routes/middlewares/metrics.ts:13`
+
+<Note>
+  This custom middleware is deprecated as `@hono/otel` already provides built-in metrics.
+</Note>
+
+### Using the Middleware
+
+```typescript
+import { metricsMiddleware } from '@/routes/middlewares/metrics';
+
+app.use('*', metricsMiddleware());
+```
+
+## Metric Types
+
+### 1. Counter
+
+Monotonic value that only increases:
+
+```typescript
+import { metrics } from "@opentelemetry/api";
+
+const meter = metrics.getMeter(SERVICE_NAME, SERVICE_VERSION);
+
+const loginCounter = meter.createCounter("user_logins_total", {
+  description: "Total number of user logins",
+});
+
+// Increment counter
+loginCounter.add(1, {
+  method: "oauth",
+  provider: "google",
+});
+```
+
+### 2. Histogram
+
+Distribution of values (useful for latencies):
+
+```typescript
+const queryDurationHistogram = meter.createHistogram(
+  "db_query_duration_ms",
+  {
+    description: "Database query duration in milliseconds",
+    unit: "ms",
+    valueType: ValueType.INT,
+  }
+);
+
+// Record a value
+queryDurationHistogram.record(42, {
+  query_type: "SELECT",
+  table: "users",
+});
+```
+
+### 3. UpDownCounter
+
+Value that can increase or decrease:
+
+```typescript
+const activeConnections = meter.createUpDownCounter(
+  "active_connections",
+  {
+    description: "Number of active database connections",
+  }
+);
+
+// Increment
+activeConnections.add(1);
+
+// Decrement
+activeConnections.add(-1);
+```
+
+### 4. Observable Gauge
+
+Async measurement of a value at a point in time:
+
+```typescript
+const memoryUsageGauge = meter.createObservableGauge(
+  "process_memory_usage_bytes",
+  {
+    description: "Current memory usage in bytes",
+    unit: "bytes",
+  }
+);
+
+memoryUsageGauge.addCallback((observableResult) => {
+  const memUsage = process.memoryUsage();
+  observableResult.observe(memUsage.heapUsed, {
+    type: "heap",
+  });
+  observableResult.observe(memUsage.rss, {
+    type: "rss",
+  });
+});
+```
+
+## Custom Metrics Examples
+
+### Tracking Business Metrics
+
+```typescript
+import { metrics } from "@opentelemetry/api";
+import { SERVICE_NAME, SERVICE_VERSION } from "@/core/constants/global.js";
+
+const meter = metrics.getMeter(SERVICE_NAME, SERVICE_VERSION);
+
+// Order metrics
+const orderCounter = meter.createCounter("orders_total", {
+  description: "Total number of orders",
+});
+
+const orderValueHistogram = meter.createHistogram("order_value_usd", {
+  description: "Order value in USD",
+  unit: "USD",
+});
+
+// Usage
+export async function createOrder(order: Order) {
+  // ... create order logic
+
+  orderCounter.add(1, {
+    status: "completed",
+    payment_method: order.paymentMethod,
+  });
+
+  orderValueHistogram.record(order.total, {
+    currency: order.currency,
+  });
+
+  return order;
+}
+```
+
+### Cache Hit Rate
+
+```typescript
+const cacheHitCounter = meter.createCounter("cache_hits_total", {
+  description: "Total cache hits",
+});
+
+const cacheMissCounter = meter.createCounter("cache_misses_total", {
+  description: "Total cache misses",
+});
+
+export async function getCached(key: string) {
+  const value = await cache.get(key);
+
+  if (value) {
+    cacheHitCounter.add(1, { cache_name: "redis" });
+    return value;
+  }
+
+  cacheMissCounter.add(1, { cache_name: "redis" });
+  return null;
+}
+```
+
+### API Response Codes
+
+```typescript
+const statusCodeCounter = meter.createCounter("http_responses_by_status", {
+  description: "HTTP responses grouped by status code",
+});
+
+app.use("*", async (c, next) => {
+  await next();
+
+  statusCodeCounter.add(1, {
+    method: c.req.method,
+    route: routePath(c),
+    status_code: c.res.status.toString(),
+    status_class: `${Math.floor(c.res.status / 100)}xx`,
+  });
+});
+```
+
+## Metric Labels
+
+Labels (attributes) help filter and aggregate metrics:
+
+```typescript
+requestCounter.add(1, {
+  method: "GET",           // HTTP method
+  route: "/api/users",    // Route path
+  status_code: "200",     // Status code
+  status_class: "2xx",    // Status class
+  region: "us-east-1",    // Deployment region
+});
+```
+
+### Label Best Practices
+
+1. **Keep cardinality low**: Avoid high-cardinality labels like user IDs
+2. **Use consistent naming**: Follow OpenTelemetry semantic conventions
+3. **Group related labels**: Use dot notation (e.g., `http.method`, `http.status_code`)
+4. **Avoid dynamic labels**: Don't use timestamps or random values
+
+## Prometheus Integration
+
+Metrics are exported to Prometheus via the OTLP exporter.
+
+### Querying in Prometheus
+
+Access Prometheus at `http://localhost:9090`:
+
+```promql
+# Request rate by route
+rate(http_requests_total_metric[5m])
+
+# Average response time
+histogram_quantile(0.95, http_request_duration_metric)
+
+# Error rate
+sum(rate(http_requests_total_metric{status_class="5xx"}[5m]))
+  / sum(rate(http_requests_total_metric[5m]))
+```
+
+### Grafana Dashboards
+
+Create dashboards in Grafana to visualize metrics:
+
+1. Navigate to `http://localhost:3111`
+2. Create a new dashboard
+3. Add panels with Prometheus queries
+4. Save and share
+
+See [Grafana Setup](/observability/grafana-setup) for details.
+
+## Performance Considerations
+
+### 1. Batch Exports
+
+The `PeriodicExportingMetricReader` batches metric exports:
+
+```typescript
+new PeriodicExportingMetricReader({
+  exporter: new OTLPMetricExporter(),
+  exportIntervalMillis: 60000, // Export every 60 seconds
+});
+```
+
+### 2. Metric Aggregation
+
+Metrics are aggregated in memory before export, reducing overhead.
+
+### 3. Label Cardinality
+
+High cardinality labels can cause performance issues:
+
+```typescript
+// Bad - high cardinality
+requestCounter.add(1, { user_id: userId });
+
+// Good - low cardinality
+requestCounter.add(1, { user_tier: "premium" });
+```
+
+## Configuration
+
+```bash
+# Enable/disable metrics
+OTEL_METRICS_ENABLED=true
+
+# Export interval (milliseconds)
+OTEL_METRIC_EXPORT_INTERVAL=60000
+
+# OTLP endpoint
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
+
+## Debugging Metrics
+
+To view metrics in console instead of exporting:
+
+```typescript
+import { ConsoleMetricExporter } from "@opentelemetry/sdk-metrics";
+
+new PeriodicExportingMetricReader({
+  exporter: new ConsoleMetricExporter(),
+});
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Grafana Setup" icon="server" href="/observability/grafana-setup">
+    Visualize metrics in Grafana dashboards
+  </Card>
+  <Card title="Logging" icon="file-lines" href="/observability/logging">
+    Correlate metrics with logs
+  </Card>
+</CardGroup>

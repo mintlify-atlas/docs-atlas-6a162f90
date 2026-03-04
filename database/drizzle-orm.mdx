@@ -1,0 +1,584 @@
+---
+title: Drizzle ORM
+description: Drizzle ORM usage patterns, query examples, and type-safe database operations
+---
+
+Drizzle ORM provides type-safe database access with a modern TypeScript API. The BE Monorepo uses Drizzle with PostgreSQL for all database operations.
+
+## Database Client Setup
+
+The database client is configured in `src/db/index.ts`:
+
+```typescript
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import { ENV } from "@/core/constants/env.js";
+import * as schema from "./schema.js";
+
+export const dbPool = new Pool({
+  connectionString: ENV.DATABASE_URL,
+});
+
+export const db = drizzle({
+  client: dbPool,
+  schema,
+  casing: "snake_case",
+  logger: process.env.NODE_ENV === "development",
+});
+```
+
+**Key Configuration:**
+- `client`: PostgreSQL connection pool from `pg` library
+- `schema`: All table definitions from `schema.ts`
+- `casing`: Automatic conversion to `snake_case` for SQL queries
+- `logger`: Query logging enabled in development
+
+## Importing the Database Client
+
+Import the configured client throughout your application:
+
+```typescript
+import { db } from "@/db/index.js";
+import { userTable, sessionTable } from "@/db/schema.js";
+```
+
+## Query Patterns
+
+### Select Queries
+
+Basic select query:
+
+```typescript
+import { eq } from "drizzle-orm";
+
+// Select all users
+const users = await db.select().from(userTable);
+
+// Select specific columns
+const userEmails = await db
+  .select({
+    email: userTable.email,
+    name: userTable.name,
+  })
+  .from(userTable);
+
+// Select with WHERE clause
+const user = await db
+  .select()
+  .from(userTable)
+  .where(eq(userTable.id, userId));
+
+// Select with LIMIT
+const recentUsers = await db
+  .select()
+  .from(userTable)
+  .limit(10);
+```
+
+### Insert Operations
+
+Insert single record:
+
+```typescript
+const newUser = await db
+  .insert(userTable)
+  .values({
+    id: "user_123",
+    name: "John Doe",
+    email: "john@example.com",
+    emailVerified: false,
+  })
+  .returning();
+```
+
+Insert multiple records:
+
+```typescript
+const newUsers = await db
+  .insert(userTable)
+  .values([
+    { id: "user_1", name: "Alice", email: "alice@example.com", emailVerified: false },
+    { id: "user_2", name: "Bob", email: "bob@example.com", emailVerified: false },
+  ])
+  .returning();
+```
+
+Insert with defaults (UUID auto-generation):
+
+```typescript
+const rateLimit = await db
+  .insert(rateLimitTable)
+  .values({
+    key: "api:user:123",
+    count: 1,
+    lastRequest: Date.now(),
+  })
+  .returning();
+// id is automatically generated as UUID
+```
+
+### Update Operations
+
+Update single record:
+
+```typescript
+const updated = await db
+  .update(userTable)
+  .set({
+    emailVerified: true,
+    updatedAt: new Date(),
+  })
+  .where(eq(userTable.id, userId))
+  .returning();
+```
+
+Update with SQL expressions:
+
+```typescript
+import { sql } from "drizzle-orm";
+
+await db
+  .update(rateLimitTable)
+  .set({
+    count: sql`GREATEST(0, ${rateLimitTable.count} - 1)`,
+    lastRequest: Date.now(),
+  })
+  .where(eq(rateLimitTable.key, key));
+```
+
+Conditional update:
+
+```typescript
+const result = await db
+  .update(rateLimitTable)
+  .set({
+    count: isExpired ? 1 : record.count + 1,
+    lastRequest: now,
+  })
+  .where(eq(rateLimitTable.key, key))
+  .returning();
+```
+
+### Delete Operations
+
+Delete single record:
+
+```typescript
+await db
+  .delete(sessionTable)
+  .where(eq(sessionTable.id, sessionId));
+```
+
+Delete multiple records:
+
+```typescript
+import { and, lt } from "drizzle-orm";
+
+// Delete expired sessions
+await db
+  .delete(sessionTable)
+  .where(lt(sessionTable.expiresAt, new Date()));
+```
+
+Delete all records:
+
+```typescript
+// Clear all rate limits
+await db.delete(rateLimitTable);
+```
+
+### Query Operators
+
+Drizzle provides type-safe operators:
+
+```typescript
+import { eq, ne, lt, lte, gt, gte, and, or, not, isNull, isNotNull } from "drizzle-orm";
+
+// Equals
+where(eq(userTable.email, "user@example.com"))
+
+// Not equals
+where(ne(userTable.emailVerified, false))
+
+// Less than / Greater than
+where(lt(sessionTable.expiresAt, new Date()))
+where(gt(rateLimitTable.count, 100))
+
+// AND / OR
+where(and(
+  eq(userTable.emailVerified, true),
+  isNotNull(userTable.image)
+))
+
+where(or(
+  eq(userTable.email, email1),
+  eq(userTable.email, email2)
+))
+
+// NULL checks
+where(isNull(userTable.deletedAt))  // Active records only
+where(isNotNull(userTable.deletedAt))  // Soft-deleted records
+```
+
+## Real-World Example: Rate Limiting Store
+
+The rate limiting implementation demonstrates advanced Drizzle patterns:
+
+```typescript
+import { eq, sql } from "drizzle-orm";
+import { db } from "@/db/index.js";
+import { rateLimitTable } from "@/db/schema.js";
+
+// Get rate limit record
+async get(key: string): Promise<ClientRateLimitInfo | undefined> {
+  const result = await db
+    .select()
+    .from(rateLimitTable)
+    .where(eq(rateLimitTable.key, key))
+    .limit(1);
+
+  if (result.length === 0) {
+    return;
+  }
+
+  const record = result[0]!;
+  const now = Date.now();
+  const windowStart = now - this.#windowMs;
+
+  // Check if record is expired
+  if (record.lastRequest && record.lastRequest < windowStart) {
+    // Delete expired record
+    await db.delete(rateLimitTable).where(eq(rateLimitTable.key, key));
+    return;
+  }
+
+  return {
+    totalHits: record.count || 0,
+    resetTime: new Date(now + this.#windowMs - (now - (record.lastRequest || now))),
+  };
+}
+```
+
+Increment with upsert logic:
+
+```typescript
+async increment(key: string): Promise<ClientRateLimitInfo> {
+  const now = Date.now();
+  const windowStart = now - this.#windowMs;
+
+  // Try to get existing record
+  const existing = await db
+    .select()
+    .from(rateLimitTable)
+    .where(eq(rateLimitTable.key, key))
+    .limit(1);
+
+  if (existing.length > 0) {
+    const record = existing[0]!;
+    const isExpired = record.lastRequest < windowStart;
+    const newCount = isExpired ? 1 : (record.count || 0) + 1;
+
+    // Update existing record
+    const updated = await db
+      .update(rateLimitTable)
+      .set({
+        count: newCount,
+        lastRequest: now,
+      })
+      .where(eq(rateLimitTable.key, key))
+      .returning();
+
+    return {
+      totalHits: updated[0]!.count || 1,
+      resetTime: new Date(now + this.#windowMs),
+    };
+  }
+
+  // Create new record
+  const inserted = await db
+    .insert(rateLimitTable)
+    .values({
+      key,
+      count: 1,
+      lastRequest: now,
+    })
+    .returning();
+
+  return {
+    totalHits: inserted[0]!.count || 1,
+    resetTime: new Date(now + this.#windowMs),
+  };
+}
+```
+
+Decrement with SQL expression:
+
+```typescript
+async decrement(key: string): Promise<void> {
+  const now = Date.now();
+  await db
+    .update(rateLimitTable)
+    .set({
+      count: sql`GREATEST(0, ${rateLimitTable.count} - 1)`, // Prevent negative
+      lastRequest: now,
+    })
+    .where(eq(rateLimitTable.key, key));
+}
+```
+
+## Type Safety with drizzle-zod
+
+Drizzle integrates with Zod for runtime type validation:
+
+```typescript
+import { createSelectSchema } from "drizzle-zod";
+import type { z } from "zod";
+
+// Generate Zod schema from table definition
+export const selectUserTableSchema = createSelectSchema(userTable);
+
+// Infer TypeScript type
+export type UserTable = z.infer<typeof selectUserTableSchema>;
+```
+
+### Using Schemas
+
+Validate data at runtime:
+
+```typescript
+import { selectUserTableSchema } from "@/db/schema.js";
+
+// Parse and validate
+const validUser = selectUserTableSchema.parse(userData);
+
+// Safe parse (returns result object)
+const result = selectUserTableSchema.safeParse(userData);
+if (result.success) {
+  const user = result.data;
+} else {
+  console.error(result.error);
+}
+```
+
+### Custom Schemas
+
+Extend generated schemas:
+
+```typescript
+import { createSelectSchema, createInsertSchema } from "drizzle-zod";
+
+// Select schema (for reading)
+export const selectUserTableSchema = createSelectSchema(userTable);
+
+// Insert schema (for writing)
+export const insertUserTableSchema = createInsertSchema(userTable, {
+  email: (schema) => schema.email.email(),  // Add email validation
+  name: (schema) => schema.name.min(2).max(100),  // Add length validation
+});
+```
+
+## Advanced Patterns
+
+### Transactions
+
+Use transactions for atomic operations:
+
+```typescript
+await db.transaction(async (tx) => {
+  // Create user
+  const user = await tx
+    .insert(userTable)
+    .values({ id: userId, name, email, emailVerified: false })
+    .returning();
+
+  // Create session
+  await tx
+    .insert(sessionTable)
+    .values({
+      id: sessionId,
+      userId: user[0]!.id,
+      token: sessionToken,
+      expiresAt: expiresAt,
+    });
+
+  // Both succeed or both fail
+});
+```
+
+### Prepared Statements
+
+Optimize repeated queries:
+
+```typescript
+const getUserById = db
+  .select()
+  .from(userTable)
+  .where(eq(userTable.id, placeholder("userId")))
+  .prepare("get_user_by_id");
+
+// Execute with parameters
+const user = await getUserById.execute({ userId: "user_123" });
+```
+
+### Raw SQL
+
+For complex queries, use raw SQL:
+
+```typescript
+import { sql } from "drizzle-orm";
+
+const result = await db.execute(sql`
+  SELECT u.*, COUNT(s.id) as session_count
+  FROM "user" u
+  LEFT JOIN "session" s ON s.user_id = u.id
+  WHERE u.deleted_at IS NULL
+  GROUP BY u.id
+  HAVING COUNT(s.id) > 0
+`);
+```
+
+### Joins
+
+Query across tables:
+
+```typescript
+const usersWithSessions = await db
+  .select({
+    userId: userTable.id,
+    userName: userTable.name,
+    sessionId: sessionTable.id,
+    sessionToken: sessionTable.token,
+  })
+  .from(userTable)
+  .leftJoin(sessionTable, eq(userTable.id, sessionTable.userId));
+```
+
+## Performance Tips
+
+### 1. Use `.limit()` for Single Records
+
+```typescript
+// Good: Limit 1
+const user = await db
+  .select()
+  .from(userTable)
+  .where(eq(userTable.id, userId))
+  .limit(1);
+
+// Less efficient
+const users = await db
+  .select()
+  .from(userTable)
+  .where(eq(userTable.id, userId));
+```
+
+### 2. Select Only Needed Columns
+
+```typescript
+// Good: Select specific columns
+const emails = await db
+  .select({ email: userTable.email })
+  .from(userTable);
+
+// Less efficient: Select all columns
+const users = await db.select().from(userTable);
+```
+
+### 3. Use Prepared Statements for Repeated Queries
+
+Prepared statements are cached and reused:
+
+```typescript
+const findByEmail = db
+  .select()
+  .from(userTable)
+  .where(eq(userTable.email, placeholder("email")))
+  .prepare("find_by_email");
+
+// Execute multiple times efficiently
+const user1 = await findByEmail.execute({ email: "user1@example.com" });
+const user2 = await findByEmail.execute({ email: "user2@example.com" });
+```
+
+### 4. Batch Operations
+
+Use bulk inserts instead of multiple single inserts:
+
+```typescript
+// Good: Bulk insert
+await db.insert(userTable).values(users);
+
+// Less efficient: Loop
+for (const user of users) {
+  await db.insert(userTable).values(user);
+}
+```
+
+## Error Handling
+
+Handle database errors gracefully:
+
+```typescript
+import { logger } from "@workspace/core/utils/logger.js";
+
+try {
+  const result = await db
+    .insert(userTable)
+    .values({ id, name, email, emailVerified: false })
+    .returning();
+  return result[0];
+} catch (error) {
+  logger.error("Failed to create user:", error);
+  throw new Error("Database operation failed");
+}
+```
+
+## Development Tools
+
+### Query Logging
+
+Queries are automatically logged in development:
+
+```typescript
+export const db = drizzle({
+  client: dbPool,
+  schema,
+  casing: "snake_case",
+  logger: process.env.NODE_ENV === "development",  // Logs all queries
+});
+```
+
+### Drizzle Studio
+
+Visual database browser:
+
+```bash
+bun run db:studio
+```
+
+Access at `http://localhost:3003`
+
+## Connection Management
+
+The connection pool is managed by `pg`:
+
+```typescript
+export const dbPool = new Pool({
+  connectionString: ENV.DATABASE_URL,
+  // Optional: Configure pool
+  // max: 20,  // Maximum connections
+  // idleTimeoutMillis: 30000,
+  // connectionTimeoutMillis: 2000,
+});
+```
+
+### Graceful Shutdown
+
+Close connections on application shutdown:
+
+```typescript
+process.on("SIGTERM", async () => {
+  await dbPool.end();
+  process.exit(0);
+});
+```

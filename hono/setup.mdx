@@ -1,0 +1,165 @@
+---
+title: Setup
+description: How to set up and run the Hono backend application
+---
+
+The Hono app is a bulletproof Hono 4 backend template running on port **3333**.
+
+## Prerequisites
+
+- Bun or Node.js runtime
+- PostgreSQL database
+- Environment variables configured
+
+## Environment Configuration
+
+The app uses `@t3-oss/env-core` for type-safe environment variables. Required variables:
+
+```typescript
+APP_TITLE: string          // Application title
+APP_URL: string            // Application URL (for CORS)
+DATABASE_URL: string       // PostgreSQL connection string
+BETTER_AUTH_SECRET: string // BetterAuth secret key
+OTEL_LOG_LEVEL: string     // OpenTelemetry log level
+```
+
+See `src/core/constants/env.ts:4` for the complete schema.
+
+## Development Mode
+
+### Using Bun (Recommended)
+
+```bash
+bun run dev
+```
+
+This command:
+- Loads environment variables from `.env.dev`
+- Enables hot reloading
+- Preloads OpenTelemetry instrumentation
+- Runs `src/bun.ts:1`
+
+### Using Node.js
+
+```bash
+bun run node:dev
+```
+
+This uses `tsx` with watch mode and runs `src/node.ts:1`.
+
+## Production Mode
+
+### Bun Runtime
+
+```bash
+bun run dev:prod
+```
+
+Loads `.env.prod` environment file.
+
+### Node.js Runtime
+
+Build the application:
+
+```bash
+bun run node:build:prod
+```
+
+Then start the server:
+
+```bash
+bun run node:start:prod
+```
+
+## Server Configuration
+
+The server runs on **port 3333** (defined in `src/core/constants/global.ts:3`).
+
+### Bun Entry Point
+
+```typescript
+// src/bun.ts
+import { PORT } from "@/core/constants/global.js";
+import { app } from "./app.js";
+
+export default {
+  ...app,
+  port: PORT,
+} as typeof app & {
+  port: number;
+};
+```
+
+### Node.js Entry Point
+
+```typescript
+// src/node.ts
+import { serve } from "@hono/node-server";
+import { PORT } from "@/core/constants/global.js";
+import { app } from "./app.js";
+
+const server = serve({ ...app, port: PORT }, (info) => {
+  logger.log(`Started development server: http://localhost:${info.port}`);
+});
+
+// Graceful shutdown handlers
+process.on("SIGINT", () => {
+  server.close();
+  process.exit(0);
+});
+```
+
+See `src/node.ts:1` for full implementation.
+
+## Database Scripts
+
+```bash
+# Pull database schema
+bun run db:pull
+
+# Push schema changes
+bun run db:push
+
+# Generate migrations
+bun run db:gen
+
+# Run migrations
+bun run db:migrate
+
+# Open Drizzle Studio on port 3003
+bun run db:studio
+```
+
+## Authentication
+
+Generate BetterAuth schema:
+
+```bash
+bun run auth:gen
+```
+
+Outputs to `src/db/auth-schema.ts`.
+
+## Testing
+
+```bash
+bun test
+```
+
+Runs tests with `.env.dev` environment.
+
+## Type Checking
+
+```bash
+bun run typecheck
+```
+
+## Ngrok Tunnel
+
+For local development with external webhooks:
+
+```bash
+bun run ngrok
+```
+
+Exposes port 3333 via ngrok.

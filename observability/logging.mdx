@@ -1,0 +1,325 @@
+---
+title: Logging
+description: Structured logging implementation with OpenTelemetry
+---
+
+## Overview
+
+The BE Monorepo uses OpenTelemetry for structured logging, providing correlation with traces and automatic export to Grafana Loki.
+
+## Logger Implementation
+
+The logger is implemented in `src/core/utils/logger.ts` using OpenTelemetry's Logs API.
+
+### Logger Class
+
+```typescript
+import {
+  type AnyValue,
+  type AnyValueMap,
+  type Logger as ApiLogsLogger,
+  SeverityNumber,
+} from "@opentelemetry/api-logs";
+import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
+import { resourceFromAttributes } from "@opentelemetry/resources";
+import {
+  BatchLogRecordProcessor,
+  LoggerProvider,
+} from "@opentelemetry/sdk-logs";
+import {
+  ATTR_SERVICE_NAME,
+  ATTR_SERVICE_VERSION,
+} from "@opentelemetry/semantic-conventions";
+import { SERVICE_NAME, SERVICE_VERSION } from "@/core/constants/global.js";
+
+export class Logger {
+  context: AnyValue;
+  logger: ApiLogsLogger;
+
+  constructor(context: AnyValue) {
+    this.context = context;
+
+    const loggerProvider = new LoggerProvider({
+      resource: resourceFromAttributes({
+        [ATTR_SERVICE_NAME]: SERVICE_NAME,
+        [ATTR_SERVICE_VERSION]: SERVICE_VERSION,
+      }),
+      processors: [new BatchLogRecordProcessor(new OTLPLogExporter())],
+    });
+
+    this.logger = loggerProvider.getLogger("default", "1.0.0");
+  }
+
+  log(message: string, attributes?: AnyValueMap) {
+    this.logger.emit({
+      severityNumber: SeverityNumber.INFO,
+      severityText: "INFO",
+      body: message,
+      attributes: {
+        context: this.context,
+        ...attributes,
+      },
+    });
+  }
+
+  warn(message: string, attributes?: AnyValueMap) {
+    this.logger.emit({
+      severityNumber: SeverityNumber.WARN,
+      severityText: "WARN",
+      body: message,
+      attributes: {
+        context: this.context,
+        ...attributes,
+      },
+    });
+  }
+
+  error(message: string, attributes?: AnyValueMap) {
+    this.logger.emit({
+      severityNumber: SeverityNumber.ERROR,
+      severityText: "ERROR",
+      body: message,
+      attributes: {
+        context: this.context,
+        ...attributes,
+      },
+    });
+  }
+}
+```
+
+### Default Logger Instance
+
+A default logger instance is exported for use throughout the application:
+
+```typescript
+import { logger } from "@/core/utils/logger.js";
+
+// Usage
+logger.log("User logged in", { userId: "123" });
+logger.warn("Rate limit approaching", { requests: 95 });
+logger.error("Database connection failed", { error: error.message });
+```
+
+## Log Levels
+
+The logger supports multiple severity levels:
+
+| Level | Severity Number | Use Case |
+|-------|----------------|----------|
+| TRACE | 1-4 | Fine-grained debugging |
+| DEBUG | 5-8 | Development debugging |
+| INFO | 9-12 | General informational messages |
+| WARN | 13-16 | Warning conditions |
+| ERROR | 17-20 | Error conditions |
+| FATAL | 21-24 | Critical failures |
+
+## Structured Logging
+
+### Adding Attributes
+
+Logs can include structured attributes for better filtering and analysis:
+
+```typescript
+logger.log("Request processed", {
+  requestId: c.get("requestId"),
+  method: c.req.method,
+  path: c.req.path,
+  duration: 123,
+  statusCode: 200,
+});
+```
+
+### Error Logging
+
+When logging errors, include relevant context:
+
+```typescript
+try {
+  await someOperation();
+} catch (error) {
+  logger.error("Operation failed", {
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+    operation: "someOperation",
+    userId: user.id,
+  });
+}
+```
+
+## Console Output with Colors
+
+The logger provides colorized console output for local development:
+
+```typescript
+const COLOR = {
+  RED: "\x1B[31m",
+  YELLOW: "\x1B[33m",
+  GREEN: "\x1B[32m",
+  BLUE: "\x1B[34m",
+  WHITE: "\x1B[37m",
+};
+
+const LEVEL_COLORS = {
+  FATAL: COLOR.RED,
+  ERROR: COLOR.RED,
+  WARN: COLOR.YELLOW,
+  INFO: COLOR.BLUE,
+  DEBUG: COLOR.GREEN,
+  TRACE: COLOR.WHITE,
+};
+```
+
+Example console output:
+
+```
+[12:34:56.789] [be-monorepo] INFO: Server started on port 3333
+[12:34:57.123] [be-monorepo] WARN: Redis connection slow
+[12:34:58.456] [be-monorepo] ERROR: Database query failed
+```
+
+## Time Formatting
+
+```typescript
+function formatTime(date: Date) {
+  return date.toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    fractionalSecondDigits: 3,
+  });
+}
+```
+
+## Usage in Error Handling
+
+The logger is integrated with Hono's error handling:
+
+```typescript
+app.onError(async (error, c) => {
+  const reqId = c.get("requestId");
+
+  if (error instanceof ZodError) {
+    const errorMessage = prettifyError(error);
+    logger.error(`ZodError with requestId: ${reqId}`, {
+      error: errorMessage,
+    });
+    return c.json({ message: errorMessage }, 400);
+  }
+
+  if (error instanceof HTTPError) {
+    const errors = await error.response.json();
+    const response = { message: error.message, error: errors };
+    logger.error(`HTTPError with requestId: ${reqId}`, response);
+    return c.json(response, 400);
+  }
+
+  if (error instanceof HTTPException) {
+    logger.error(`HTTPException with requestId: ${reqId}`, {
+      error: error.message,
+    });
+    return error.getResponse();
+  }
+
+  logger.error(`UnknownError with requestId: ${reqId}`, {
+    error: error.message,
+  });
+  return c.json(
+    { ...error, message: error.message },
+    500
+  );
+});
+```
+
+See `src/app.ts:72`
+
+## Creating Custom Loggers
+
+You can create loggers with specific contexts:
+
+```typescript
+import { Logger } from "@/core/utils/logger.js";
+
+const authLogger = new Logger("auth-service");
+const dbLogger = new Logger("database");
+
+authLogger.log("User authenticated", { userId: "123" });
+dbLogger.warn("Connection pool exhausted", { poolSize: 10 });
+```
+
+## Best Practices
+
+### 1. Use Structured Attributes
+
+Always use structured attributes instead of string interpolation:
+
+```typescript
+// Good
+logger.log("User action", { userId, action: "login" });
+
+// Bad
+logger.log(`User ${userId} performed login`);
+```
+
+### 2. Include Request Context
+
+Always include request ID for correlation:
+
+```typescript
+const reqId = c.get("requestId");
+logger.log("Processing request", { requestId: reqId });
+```
+
+### 3. Log at Appropriate Levels
+
+- Use `log()` for normal operations
+- Use `warn()` for concerning but non-critical issues
+- Use `error()` for failures that need attention
+
+### 4. Avoid Logging Sensitive Data
+
+Never log passwords, tokens, or PII:
+
+```typescript
+// Good
+logger.log("User authenticated", { userId: user.id });
+
+// Bad
+logger.log("User authenticated", { password: user.password });
+```
+
+## Querying Logs in Grafana
+
+Logs are automatically exported to Loki and can be queried in Grafana:
+
+```logql
+{service_name="be-monorepo"} |= "error"
+{service_name="be-monorepo"} | json | severity="ERROR"
+{service_name="be-monorepo"} | json | requestId="abc123"
+```
+
+See [Grafana Setup](/observability/grafana-setup) for more details.
+
+## Configuration
+
+The logger uses environment variables for configuration:
+
+```bash
+# Log level for OpenTelemetry SDK
+OTEL_LOG_LEVEL=info
+
+# OTLP endpoint for log export
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tracing" icon="diagram-project" href="/observability/tracing">
+    Learn how to correlate logs with traces
+  </Card>
+  <Card title="Grafana Setup" icon="server" href="/observability/grafana-setup">
+    Query and visualize logs in Grafana
+  </Card>
+</CardGroup>

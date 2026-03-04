@@ -1,0 +1,285 @@
+---
+title: NPM Scripts
+description: Available npm scripts for development, testing, and tooling in the BE Monorepo
+---
+
+# NPM Scripts
+
+The BE Monorepo uses npm scripts for common development tasks. Scripts are defined at both the root level and within individual apps.
+
+## Root-Level Scripts
+
+These scripts run from the repository root and affect the entire monorepo.
+
+### Development Scripts
+
+#### `prepare`
+```bash
+bun run prepare
+```
+Initializes Husky git hooks for the repository.
+
+#### `compose:up`
+```bash
+bun run compose:up
+```
+Starts Docker services defined in `docker/docker-compose.yml` with build.
+
+### Code Quality Scripts
+
+#### `format`
+```bash
+bun run format
+```
+Formats code using Ultracite formatter.
+
+#### `format:unsafe`
+```bash
+bun run format:unsafe
+```
+Formats code with unsafe transformations enabled.
+
+#### `lint`
+```bash
+bun run lint
+```
+Checks code for linting issues using Ultracite.
+
+#### `lint:fix`
+```bash
+bun run lint:fix
+```
+Automatically fixes linting issues where possible.
+
+#### `lint:doctor`
+```bash
+bun run lint:doctor
+```
+Runs diagnostic checks on the linting configuration.
+
+#### `typecheck`
+```bash
+bun run typecheck
+```
+Runs TypeScript type checking across all apps in parallel.
+
+#### `lint-typecheck`
+```bash
+bun run lint-typecheck
+```
+Runs both linting and type checking in parallel.
+
+### Maintenance Scripts
+
+#### `clean`
+```bash
+bun run clean
+```
+Removes all build artifacts, dependencies, and lock files, then reinstalls dependencies. Useful for resolving dependency issues.
+
+#### `bump:deps`
+```bash
+bun run bump:deps
+```
+Checks for dependency updates using `npm-check-updates`. See [Upgrading Dependencies](/development/upgrading-dependencies) for more details.
+
+### Changeset Scripts
+
+#### `cs`
+```bash
+bun run cs
+```
+Creates a new changeset for version management.
+
+#### `cs:v`
+```bash
+bun run cs:v
+```
+Versions packages based on changesets. See [Changesets](/development/changesets) for more details.
+
+## Hono App Scripts
+
+These scripts target the `@workspace/hono` app specifically.
+
+### Root Shortcuts
+
+From the repository root, you can run Hono-specific commands:
+
+#### `hono`
+```bash
+bun run hono
+```
+Executes commands in the Hono workspace with stack traces enabled.
+
+#### `hono:ci`
+```bash
+bun run hono:ci
+```
+Executes commands in the Hono workspace (CI mode without stack traces).
+
+#### `hono:typecheck`
+```bash
+bun run hono:typecheck
+```
+Runs type checking for the Hono app.
+
+#### `hono:test`
+```bash
+bun run hono:test
+```
+Runs tests for the Hono app. See [Testing](/development/testing) for more details.
+
+### Hono-Specific Scripts
+
+These scripts run within the `apps/hono/` directory.
+
+#### Development
+
+**`dev`**
+```bash
+bun run dev
+```
+Starts the development server with hot reload using development environment.
+
+**`dev:prod`**
+```bash
+bun run dev:prod
+```
+Starts the development server with production environment variables.
+
+**`node:dev`**
+```bash
+bun run node:dev
+```
+Starts the development server using Node.js runtime (development env).
+
+**`node:dev:prod`**
+```bash
+bun run node:dev:prod
+```
+Starts the development server using Node.js runtime (production env).
+
+#### Building
+
+**`node:build`**
+```bash
+bun run node:build
+```
+Builds the app for Node.js deployment (development env).
+
+**`node:build:prod`**
+```bash
+bun run node:build:prod
+```
+Builds the app for Node.js deployment (production env).
+
+**`node:start`**
+```bash
+bun run node:start
+```
+Starts the built Node.js app (development env).
+
+**`node:start:prod`**
+```bash
+bun run node:start:prod
+```
+Starts the built Node.js app (production env).
+
+#### Database Scripts
+
+**`db:pull`**
+```bash
+bun run db:pull
+```
+Pulls database schema from the remote database.
+
+**`db:push`**
+```bash
+bun run db:push
+```
+Pushes local schema changes to the database (verbose, strict mode).
+
+**`db:gen`**
+```bash
+bun run db:gen
+```
+Generates database migrations from schema changes.
+
+**`db:migrate`**
+```bash
+bun run db:migrate
+```
+Runs pending database migrations.
+
+**`db:studio`**
+```bash
+bun run db:studio
+```
+Opens Drizzle Studio at `http://localhost:3003` for database exploration.
+
+#### Authentication
+
+**`auth:gen`**
+```bash
+bun run auth:gen
+```
+Generates Better Auth schema types from the auth configuration.
+
+#### Testing
+
+**`test`**
+```bash
+bun run test
+```
+Runs the test suite with Bun test using development environment variables.
+
+#### Utilities
+
+**`typecheck`**
+```bash
+bun run typecheck
+```
+Runs TypeScript type checking without emitting files.
+
+**`ngrok`**
+```bash
+bun run ngrok
+```
+Exposes the local server at port 3333 through ngrok tunnel.
+
+## Script Naming Conventions
+
+### Prefixes
+
+- **No prefix**: General-purpose commands (e.g., `lint`, `test`)
+- **`hono:`**: Commands that target the Hono app from the root
+- **`db:`**: Database-related commands
+- **`auth:`**: Authentication-related commands
+- **`node:`**: Node.js-specific runtime commands
+- **`cs:`**: Changeset-related commands
+
+### Suffixes
+
+- **`:fix`**: Automatically fixes issues (e.g., `lint:fix`)
+- **`:unsafe`**: Performs potentially breaking operations (e.g., `format:unsafe`)
+- **`:ci`**: Optimized for CI environments
+- **`:prod`**: Uses production environment variables
+
+## Running Scripts
+
+All scripts use Bun as the package manager and runtime:
+
+```bash
+# Run from root
+bun run <script-name>
+
+# Run from app directory
+cd apps/hono
+bun run <script-name>
+```
+
+For parallel execution of independent scripts, use:
+
+```bash
+bun run --parallel <script1> <script2>
+```

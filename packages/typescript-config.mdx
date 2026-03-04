@@ -1,0 +1,541 @@
+---
+title: "@workspace/typescript-config"
+description: "Shared TypeScript configuration for consistent compiler settings across the monorepo"
+---
+
+# @workspace/typescript-config
+
+The `@workspace/typescript-config` package provides shared TypeScript compiler configurations used across all applications and packages in the BE Monorepo. It ensures consistent type checking, module resolution, and build settings.
+
+## Overview
+
+This package contains two TypeScript configuration presets:
+
+- **base.json** - Default configuration for general TypeScript projects
+- **node.json** - Node.js-specific configuration with additional strictness
+
+## Installation
+
+The package is already available in the monorepo workspace:
+
+```json
+{
+  "devDependencies": {
+    "@workspace/typescript-config": "workspace:*"
+  }
+}
+```
+
+## Configuration Files
+
+### base.json
+
+Location: `packages/typescript-config/base.json:1`
+
+The base configuration provides a foundation for TypeScript projects with modern ES2022 features and strict type checking.
+
+```json
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Default",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": true,
+    "esModuleInterop": true,
+    "incremental": false,
+    "isolatedModules": true,
+    "lib": ["es2022", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleDetection": "force",
+    "moduleResolution": "NodeNext",
+    "noUncheckedIndexedAccess": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022"
+  }
+}
+```
+
+**Key Features:**
+
+- **ES2022 target** - Modern JavaScript features
+- **NodeNext modules** - Latest Node.js module resolution
+- **Strict mode** - Full TypeScript strictness
+- **Declaration maps** - Enables "Go to Definition" in editors
+- **DOM libraries** - Browser API types included
+- **Index access checking** - Prevents undefined array/object access
+
+### node.json
+
+Location: `packages/typescript-config/node.json:1`
+
+The Node.js configuration extends strictness with additional checks and Node-specific settings.
+
+```json
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Node.js",
+  "compilerOptions": {
+    "outDir": "./dist",
+    
+    "module": "NodeNext",
+    "target": "ESNext",
+    "lib": ["ESNext"],
+    "types": ["node"],
+    
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+    
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    
+    "strict": true,
+    "jsx": "react-jsx",
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true
+  }
+}
+```
+
+**Key Features:**
+
+- **ESNext target** - Bleeding-edge JavaScript features
+- **Node.js types** - Node.js API type definitions
+- **Unused code detection** - Warns about unused variables/parameters
+- **Exact optional properties** - Distinguishes undefined from missing properties
+- **Source maps** - Debugging support
+- **JSX support** - React JSX transform
+- **Verbatim module syntax** - Preserves import/export as written
+- **Side effect import checking** - Prevents unsafe imports
+
+## Usage
+
+### In Applications
+
+Applications extend the Node.js configuration and add their own customizations:
+
+**Example: Hono App**
+
+Location: `apps/hono/tsconfig.json:1`
+
+```json
+{
+  "extends": "@workspace/typescript-config/node.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+    "declaration": false,
+    "declarationMap": false,
+    "resolveJsonModule": true,
+    "types": ["bun"],
+    "paths": {
+      "*": ["./*"],
+      "@/*": ["./src/*"],
+      "@workspace/core/*": ["../../packages/core/src/*"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx", "**/*.spec.ts", "**/*.json"],
+  "exclude": ["node_modules", "dist"]
+}
+```
+
+**Custom Settings:**
+
+- Hono JSX configuration
+- Bun runtime types
+- Path aliases for imports
+- Disabled declaration files (not needed for apps)
+
+### In Packages
+
+Packages also extend the Node.js configuration:
+
+**Example: Core Package**
+
+Location: `packages/core/tsconfig.json:1`
+
+```json
+{
+  "extends": "@workspace/typescript-config/node.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "declaration": false,
+    "declarationMap": false,
+    "paths": {
+      "*": ["./*"],
+      "@workspace/core/*": ["./src/*"]
+    }
+  },
+  "include": ["."],
+  "exclude": ["node_modules", "dist"]
+}
+```
+
+## Configuration Options Explained
+
+### Module Settings
+
+#### module: "NodeNext"
+
+Uses the latest Node.js module resolution algorithm, supporting both ESM and CommonJS.
+
+```typescript
+// Automatically handles both:
+import { logger } from "@workspace/core/utils/logger"; // ESM
+const utils = require("./utils"); // CommonJS
+```
+
+#### moduleResolution: "NodeNext"
+
+Resolves modules using Node.js's algorithm, respecting `package.json` exports and `type: "module"`.
+
+#### moduleDetection: "force"
+
+Treats all files as modules (with implicit `export {}`), preventing global scope pollution.
+
+### Strictness Settings
+
+#### strict: true
+
+Enables all strict type checking options:
+
+- `strictNullChecks` - null/undefined must be explicitly handled
+- `strictFunctionTypes` - Function parameter types checked contravariantly
+- `strictBindCallApply` - Validates bind/call/apply arguments
+- `strictPropertyInitialization` - Class properties must be initialized
+- `noImplicitAny` - Prevents implicit any types
+- `noImplicitThis` - Prevents implicit any on this
+
+#### noUncheckedIndexedAccess: true
+
+Array and object index access returns `T | undefined`, catching potential runtime errors:
+
+```typescript
+const items = ["a", "b", "c"];
+const item = items[5]; // Type: string | undefined (not string)
+
+if (item) {
+  console.log(item.toUpperCase()); // Safe
+}
+```
+
+#### noUnusedLocals: true
+
+Errors on unused local variables:
+
+```typescript
+function process() {
+  const data = fetchData(); // Error if never used
+  const used = transform(data);
+  return used;
+}
+```
+
+#### noUnusedParameters: true
+
+Errors on unused function parameters:
+
+```typescript
+// Error: 'name' is declared but never used
+function greet(name: string, age: number) {
+  return `Age: ${age}`;
+}
+```
+
+#### exactOptionalPropertyTypes: true
+
+Distinguishes between `undefined` and missing properties:
+
+```typescript
+interface Config {
+  port?: number;
+}
+
+// Error: undefined not assignable to number | undefined
+const config: Config = { port: undefined };
+
+// OK: property omitted
+const config2: Config = {};
+```
+
+### Module Syntax
+
+#### verbatimModuleSyntax: true
+
+Preserves import/export syntax exactly as written, preventing silent bugs:
+
+```typescript
+// Must use 'import type' for type-only imports
+import type { User } from "./types";
+import { fetchUser } from "./api";
+```
+
+#### isolatedModules: true
+
+Ensures each file can be transpiled independently (required for Babel, esbuild, swc):
+
+```typescript
+// Error: const enum not allowed (requires cross-file information)
+const enum Direction { Up, Down }
+
+// OK: regular enum
+enum Direction { Up, Down }
+```
+
+### Output Settings
+
+#### declaration: true
+
+Generates `.d.ts` type definition files:
+
+```typescript
+// src/utils.ts
+export function add(a: number, b: number) {
+  return a + b;
+}
+
+// dist/utils.d.ts (generated)
+export declare function add(a: number, b: number): number;
+```
+
+#### declarationMap: true
+
+Generates `.d.ts.map` files, enabling "Go to Definition" to jump to source TypeScript files instead of `.d.ts` files in editors.
+
+#### sourceMap: true
+
+Generates `.js.map` files for debugging:
+
+```javascript
+// Allows debuggers to map compiled JS back to original TS
+//# sourceMappingURL=utils.js.map
+```
+
+## Best Practices
+
+### Extending Configurations
+
+Always extend one of the base configurations instead of duplicating settings:
+
+```json
+{
+  "extends": "@workspace/typescript-config/node.json",
+  "compilerOptions": {
+    // Only add project-specific overrides
+  }
+}
+```
+
+### Path Aliases
+
+Define clear path aliases for better imports:
+
+```json
+{
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@workspace/core/*": ["../../packages/core/src/*"],
+      "@test/*": ["./test/*"]
+    }
+  }
+}
+```
+
+```typescript
+// Instead of:
+import { logger } from "../../packages/core/src/utils/logger";
+
+// Use:
+import { logger } from "@workspace/core/utils/logger";
+```
+
+### Include/Exclude Patterns
+
+Specify exactly what should be compiled:
+
+```json
+{
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "test/**/*.spec.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.spec.ts" // Exclude if not compiling tests
+  ]
+}
+```
+
+### Runtime-Specific Types
+
+Add appropriate type definitions for your runtime:
+
+```json
+{
+  "compilerOptions": {
+    "types": [
+      "node",      // Node.js APIs
+      "bun",       // Bun APIs
+      "@types/jest" // Testing framework
+    ]
+  }
+}
+```
+
+## Common Patterns
+
+### Application Configuration
+
+Apps typically disable declaration generation and add path aliases:
+
+```json
+{
+  "extends": "@workspace/typescript-config/node.json",
+  "compilerOptions": {
+    "declaration": false,
+    "declarationMap": false,
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  }
+}
+```
+
+### Package Configuration
+
+Packages keep declarations for consumers:
+
+```json
+{
+  "extends": "@workspace/typescript-config/node.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "declaration": true,
+    "declarationMap": true
+  }
+}
+```
+
+### Testing Configuration
+
+Test files may need relaxed strictness:
+
+```json
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["test/**/*.spec.ts"]
+}
+```
+
+## Migration Guide
+
+### Adopting Strict Configurations
+
+When migrating to stricter settings:
+
+1. **Enable one option at a time** - Don't enable all strict options at once
+2. **Fix errors incrementally** - Address errors in small batches
+3. **Use type assertions sparingly** - Fix underlying issues instead
+4. **Add tests** - Catch issues that TypeScript finds
+
+```typescript
+// Before: Loose typing
+function processData(data: any) {
+  return data.users[0].name;
+}
+
+// After: Strict typing
+function processData(data: { users: Array<{ name: string }> }) {
+  const firstUser = data.users[0]; // Type: { name: string } | undefined
+  if (firstUser) {
+    return firstUser.name;
+  }
+  return null;
+}
+```
+
+### Handling noUncheckedIndexedAccess
+
+Add runtime checks for array/object access:
+
+```typescript
+// Before
+const items = getItems();
+processItem(items[0]); // Assumes item exists
+
+// After
+const items = getItems();
+const firstItem = items[0];
+if (firstItem) {
+  processItem(firstItem);
+}
+```
+
+## Troubleshooting
+
+### Module Resolution Issues
+
+**Problem:** "Cannot find module '@workspace/core'"  
+**Solution:** Check path mappings in tsconfig.json:
+
+```json
+{
+  "compilerOptions": {
+    "paths": {
+      "@workspace/core/*": ["../../packages/core/src/*"]
+    }
+  }
+}
+```
+
+### Type Import Errors
+
+**Problem:** "'X' cannot be used as a value because it was imported using 'import type'"  
+**Solution:** Use regular import for values, type import for types:
+
+```typescript
+// Error
+import type { User } from "./types";
+const user: User = new User(); // Error: User is a type, not a value
+
+// Fix
+import { User } from "./types";
+const user = new User();
+```
+
+### Declaration File Conflicts
+
+**Problem:** Multiple declaration files for the same module  
+**Solution:** Exclude build directories:
+
+```json
+{
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "**/*.spec.ts"
+  ]
+}
+```
+
+## Related Documentation
+
+- [Core Package](./core)
+- [Architecture Overview](../architecture)
+- [TypeScript Documentation](https://www.typescriptlang.org/tsconfig)

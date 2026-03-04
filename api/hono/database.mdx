@@ -1,0 +1,370 @@
+---
+title: Database
+description: Database schema, tables, and type definitions using Drizzle ORM
+---
+
+## Overview
+
+The Hono app uses PostgreSQL as its database with Drizzle ORM for type-safe database operations. The schema is defined in `src/db/schema.ts`.
+
+## Common Fields
+
+**File:** `src/db/schema.ts:14-18`
+
+All tables with timestamps include these common fields:
+
+```typescript
+const timestamps = {
+  createdAt: timestamp().defaultNow().notNull(),
+  updatedAt: timestamp().$onUpdate(() => new Date()),
+  deletedAt: timestamp(),
+};
+```
+
+**Fields:**
+- `createdAt` - Automatically set to current timestamp on creation
+- `updatedAt` - Automatically updated to current timestamp on modification
+- `deletedAt` - Nullable timestamp for soft deletes
+
+## Authentication Tables
+
+These tables are used by Better Auth for authentication and session management.
+
+### user
+
+**File:** `src/db/schema.ts:22-29`
+
+Stores user account information.
+
+```typescript
+export const userTable = pgTable("user", {
+  id: text().primaryKey(),
+  name: text().notNull(),
+  email: text().notNull().unique(),
+  emailVerified: boolean().default(false).notNull(),
+  image: text(),
+  ...timestamps,
+});
+```
+
+**Columns:**
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `text` | PRIMARY KEY | Unique user identifier |
+| `name` | `text` | NOT NULL | User's display name |
+| `email` | `text` | NOT NULL, UNIQUE | User's email address |
+| `emailVerified` | `boolean` | NOT NULL, DEFAULT false | Email verification status |
+| `image` | `text` | nullable | URL to user's profile image |
+| `createdAt` | `timestamp` | NOT NULL | Account creation timestamp |
+| `updatedAt` | `timestamp` | nullable | Last update timestamp |
+| `deletedAt` | `timestamp` | nullable | Soft delete timestamp |
+
+**Type Export:**
+
+```typescript
+export const selectUserTableSchema = createSelectSchema(userTable);
+export type UserTable = z.infer<typeof selectUserTableSchema>;
+```
+
+**Relationships:**
+- One-to-many with `session` table
+- One-to-many with `account` table
+
+### session
+
+**File:** `src/db/schema.ts:33-43`
+
+Stores active user sessions.
+
+```typescript
+export const sessionTable = pgTable("session", {
+  id: text().primaryKey(),
+  expiresAt: timestamp().notNull(),
+  token: text().notNull().unique(),
+  ipAddress: text(),
+  userAgent: text(),
+  userId: text()
+    .notNull()
+    .references(() => userTable.id, { onDelete: "cascade" }),
+  ...timestamps,
+});
+```
+
+**Columns:**
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `text` | PRIMARY KEY | Unique session identifier |
+| `expiresAt` | `timestamp` | NOT NULL | Session expiration time |
+| `token` | `text` | NOT NULL, UNIQUE | Session token for authentication |
+| `ipAddress` | `text` | nullable | IP address of the session |
+| `userAgent` | `text` | nullable | Browser/client user agent |
+| `userId` | `text` | NOT NULL, FOREIGN KEY | Reference to user |
+| `createdAt` | `timestamp` | NOT NULL | Session creation timestamp |
+| `updatedAt` | `timestamp` | nullable | Last update timestamp |
+| `deletedAt` | `timestamp` | nullable | Soft delete timestamp |
+
+**Type Export:**
+
+```typescript
+export const selectSessionTableSchema = createSelectSchema(sessionTable);
+export type SessionTable = z.infer<typeof selectSessionTableSchema>;
+```
+
+**Foreign Keys:**
+- `userId` references `user.id` with CASCADE delete
+
+### account
+
+**File:** `src/db/schema.ts:47-62`
+
+Stores OAuth provider accounts and credentials linked to users.
+
+```typescript
+export const accountTable = pgTable("account", {
+  id: text().primaryKey(),
+  accountId: text().notNull(),
+  providerId: text().notNull(),
+  userId: text()
+    .notNull()
+    .references(() => userTable.id, { onDelete: "cascade" }),
+  accessToken: text(),
+  refreshToken: text(),
+  idToken: text(),
+  accessTokenExpiresAt: timestamp(),
+  refreshTokenExpiresAt: timestamp(),
+  scope: text(),
+  password: text(),
+  ...timestamps,
+});
+```
+
+**Columns:**
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `text` | PRIMARY KEY | Unique account identifier |
+| `accountId` | `text` | NOT NULL | Provider-specific account ID |
+| `providerId` | `text` | NOT NULL | OAuth provider identifier |
+| `userId` | `text` | NOT NULL, FOREIGN KEY | Reference to user |
+| `accessToken` | `text` | nullable | OAuth access token |
+| `refreshToken` | `text` | nullable | OAuth refresh token |
+| `idToken` | `text` | nullable | OAuth ID token |
+| `accessTokenExpiresAt` | `timestamp` | nullable | Access token expiration |
+| `refreshTokenExpiresAt` | `timestamp` | nullable | Refresh token expiration |
+| `scope` | `text` | nullable | OAuth scope |
+| `password` | `text` | nullable | Hashed password for email/password auth |
+| `createdAt` | `timestamp` | NOT NULL | Account creation timestamp |
+| `updatedAt` | `timestamp` | nullable | Last update timestamp |
+| `deletedAt` | `timestamp` | nullable | Soft delete timestamp |
+
+**Type Export:**
+
+```typescript
+export const selectAccountTableSchema = createSelectSchema(accountTable);
+export type AccountTable = z.infer<typeof selectAccountTableSchema>;
+```
+
+**Foreign Keys:**
+- `userId` references `user.id` with CASCADE delete
+
+**Use Cases:**
+- OAuth provider accounts (Google, GitHub, etc.)
+- Email/password authentication (password field)
+- Token management for API access
+
+### verification
+
+**File:** `src/db/schema.ts:66-72`
+
+Stores verification tokens for email verification, password resets, etc.
+
+```typescript
+export const verificationTable = pgTable("verification", {
+  id: text().primaryKey(),
+  identifier: text().notNull(),
+  value: text().notNull(),
+  expiresAt: timestamp().notNull(),
+  ...timestamps,
+});
+```
+
+**Columns:**
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `text` | PRIMARY KEY | Unique verification identifier |
+| `identifier` | `text` | NOT NULL | Email or identifier to verify |
+| `value` | `text` | NOT NULL | Verification token/code |
+| `expiresAt` | `timestamp` | NOT NULL | Token expiration time |
+| `createdAt` | `timestamp` | NOT NULL | Token creation timestamp |
+| `updatedAt` | `timestamp` | nullable | Last update timestamp |
+| `deletedAt` | `timestamp` | nullable | Soft delete timestamp |
+
+**Type Export:**
+
+```typescript
+export const selectVerificationTableSchema = createSelectSchema(verificationTable);
+export type VerificationTable = z.infer<typeof selectVerificationTableSchema>;
+```
+
+**Use Cases:**
+- Email verification tokens
+- Password reset tokens
+- Magic link authentication
+- Two-factor authentication codes
+
+## Rate Limiting Table
+
+### rate_limit
+
+**File:** `src/db/schema.ts:79-84`
+
+Stores rate limiting data for request throttling.
+
+```typescript
+export const rateLimitTable = pgTable("rate_limit", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  key: text("key").notNull().unique(),
+  count: integer("count").default(0).notNull(),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});
+```
+
+**Columns:**
+
+| Column | Type | Constraints | Description |
+|--------|------|-------------|-------------|
+| `id` | `uuid` | PRIMARY KEY | Auto-generated UUID |
+| `key` | `text` | NOT NULL, UNIQUE | Rate limit key (session ID or IP) |
+| `count` | `integer` | NOT NULL, DEFAULT 0 | Request count in current window |
+| `lastRequest` | `bigint` | NOT NULL | Timestamp of last request (milliseconds) |
+
+**Key Format:**
+- Authenticated users: `session:<session_id>`
+- Anonymous users: `ip:<ip_address>`
+
+**Usage:**
+- Tracks request counts per client within time windows
+- Used by `DbStore` in rate limiting middleware
+- Automatically managed by rate limiter (increment/decrement/reset)
+- Expired records are automatically deleted on access
+
+**No Timestamps:** This table intentionally omits timestamp fields as it manages its own time-based data via `lastRequest`.
+
+## Schema Exports
+
+**File:** `src/db/schema.ts:30-31,44-45,63-64,73-75`
+
+Each table exports both a Zod schema and TypeScript type:
+
+```typescript
+// User
+export const selectUserTableSchema = createSelectSchema(userTable);
+export type UserTable = z.infer<typeof selectUserTableSchema>;
+
+// Session
+export const selectSessionTableSchema = createSelectSchema(sessionTable);
+export type SessionTable = z.infer<typeof selectSessionTableSchema>;
+
+// Account
+export const selectAccountTableSchema = createSelectSchema(accountTable);
+export type AccountTable = z.infer<typeof selectAccountTableSchema>;
+
+// Verification
+export const selectVerificationTableSchema = createSelectSchema(verificationTable);
+export type VerificationTable = z.infer<typeof selectVerificationTableSchema>;
+```
+
+**Benefits:**
+- Runtime validation with Zod schemas
+- Type safety with TypeScript types
+- Auto-generated from Drizzle table definitions
+- Consistent with database schema
+
+## Database Connection
+
+**File:** `src/db/index.ts`
+
+The database connection is exported from the db module:
+
+```typescript
+import { db } from '@/db/index.js';
+```
+
+**Usage in Better Auth:**
+
+**File:** `src/auth/libs/index.ts:16-24`
+
+```typescript
+database: drizzleAdapter(db, {
+  provider: "pg",
+  schema: {
+    user: schema.userTable,
+    session: schema.sessionTable,
+    account: schema.accountTable,
+    verification: schema.verificationTable,
+    rate_limit: schema.rateLimitTable,
+  },
+})
+```
+
+## Database Operations
+
+Common Drizzle ORM operations used throughout the codebase:
+
+### Select
+
+```typescript
+import { db } from '@/db/index.js';
+import { userTable } from '@/db/schema.js';
+import { eq } from 'drizzle-orm';
+
+const user = await db
+  .select()
+  .from(userTable)
+  .where(eq(userTable.id, userId))
+  .limit(1);
+```
+
+### Insert
+
+```typescript
+const newUser = await db
+  .insert(userTable)
+  .values({
+    id: 'user_123',
+    name: 'John Doe',
+    email: 'john@example.com',
+    emailVerified: false,
+  })
+  .returning();
+```
+
+### Update
+
+```typescript
+const updated = await db
+  .update(userTable)
+  .set({ emailVerified: true })
+  .where(eq(userTable.id, userId))
+  .returning();
+```
+
+### Delete
+
+```typescript
+await db
+  .delete(userTable)
+  .where(eq(userTable.id, userId));
+```
+
+### Soft Delete
+
+```typescript
+await db
+  .update(userTable)
+  .set({ deletedAt: new Date() })
+  .where(eq(userTable.id, userId));
+```

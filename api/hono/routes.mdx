@@ -1,0 +1,217 @@
+---
+title: Routes
+description: API route definitions and handlers for the Hono application
+---
+
+## Overview
+
+The Hono app provides a RESTful API with OpenAPI documentation. All routes are defined using the `@hono/zod-openapi` library for type-safe API definitions.
+
+## Route Configuration
+
+Routes are configured in `src/routes/index.ts` and mounted to the main application.
+
+### Base Configuration
+
+**File:** `src/routes/index.ts:9-53`
+
+```typescript
+export async function routes(
+  app: OpenAPIHono<{
+    Variables: Variables;
+  }>
+) {
+  // OpenAPI docs
+  app.doc("/openapi", {
+    openapi: "3.1.0",
+    info: {
+      title: ENV.APP_TITLE,
+      version: `v${SERVICE_VERSION}`,
+      description: "API documentation for the Hono app",
+    },
+    servers: [
+      {
+        url: "http://localhost:3333",
+        description: "Local server",
+      },
+    ],
+  });
+}
+```
+
+### OpenAPI Documentation
+
+The API provides interactive documentation using Scalar API Reference:
+
+- **Endpoint:** `GET /openapi/docs`
+- **OpenAPI Spec:** `GET /openapi`
+- **Theme:** ElysiaJS
+- **Sources:**
+  - Main API documentation
+  - Better Auth API documentation at `/api/auth/open-api/generate-schema`
+
+## Authentication Routes
+
+**File:** `src/routes/auth.ts:5-12`
+
+### Better Auth Handler
+
+All authentication endpoints are handled by the Better Auth library.
+
+```typescript
+export function authRoutes(
+  app: OpenAPIHono<{
+    Variables: Variables;
+  }>
+) {
+  // betterauth handler
+  app.on(["POST", "GET"], "/api/auth/**", (c) => auth.handler(c.req.raw));
+}
+```
+
+**Base Path:** `/api/auth/**`
+
+**Supported Methods:** `GET`, `POST`
+
+**Handler:** Delegates to Better Auth library for:
+- User registration
+- User login/logout
+- Session management
+- Email verification
+- Password reset
+- OAuth provider integration
+
+See the [Auth API Reference](/api/hono/auth) for detailed endpoint documentation.
+
+## LLMs Documentation Routes
+
+**File:** `src/routes/llms-docs.ts`
+
+Routes for serving documentation content to Large Language Models.
+
+### GET /llms-docs
+
+**Summary:** Get combined documentation content
+
+**Description:** Retrieves all content from the docs folder and combines it into a single response.
+
+**File:** `src/routes/llms-docs.ts:40-87`
+
+**Request:**
+- Method: `GET`
+- Path: `/llms-docs`
+- No parameters required
+
+**Response:** `200 OK`
+
+```typescript
+{
+  text: string;      // Combined content of all docs files
+  length: number;    // Character count of the text
+  tokens: number;    // Estimated token count (length / 4)
+}
+```
+
+**Implementation Details:**
+- Recursively reads all files from the `./docs` directory
+- Concatenates file contents with double newline separators
+- Estimates token count using 4 characters per token ratio
+
+### GET /llms-auth.txt
+
+**Summary:** Better Auth OpenAPI documentation in Markdown
+
+**Description:** Provides the Better Auth API documentation in Markdown format, optimized for LLM consumption.
+
+**File:** `src/routes/llms-docs.ts:103-126`
+
+**Request:**
+- Method: `GET`
+- Path: `/llms-auth.txt`
+- No parameters required
+
+**Response:** `200 OK`
+
+```
+Content-Type: text/plain
+
+<Markdown formatted OpenAPI documentation>
+```
+
+**Implementation:**
+- Generates OpenAPI schema from Better Auth instance
+- Converts to Markdown using `@scalar/openapi-to-markdown`
+- Returns as plain text
+
+### GET /llms.txt
+
+**Summary:** Main OpenAPI documentation in Markdown
+
+**Description:** Provides the complete API documentation in Markdown format following the llms.txt standard.
+
+**File:** `src/routes/llms-docs.ts:140-162`
+
+**Request:**
+- Method: `GET`
+- Path: `/llms.txt`
+- No parameters required
+
+**Response:** `200 OK`
+
+```
+Content-Type: text/plain
+
+<Markdown formatted OpenAPI documentation>
+```
+
+**Standard:** [llms.txt specification](https://llmstxt.org/)
+
+**Implementation:**
+- Generates OpenAPI 3.1 document from all registered routes
+- Converts to Markdown format
+- Must be registered after all other routes to index them properly
+
+## Route Registration Order
+
+**File:** `src/routes/index.ts:48-52`
+
+Routes are registered in the following order:
+
+1. OpenAPI documentation endpoints
+2. Authentication routes (`/api/auth/**`)
+3. LLMs documentation routes (`/llms-docs`, `/llms-auth.txt`, `/llms.txt`)
+
+**Note:** The `/llms.txt` and `/llms-auth.txt` routes must be registered last to properly index all other routes in the generated documentation.
+
+## Helper Functions
+
+### getAllFiles
+
+**File:** `src/routes/llms-docs.ts:17-33`
+
+Recursively retrieves all file paths from a directory.
+
+```typescript
+async function getAllFiles(dir: string): Promise<string[]>
+```
+
+**Parameters:**
+- `dir` - The directory path to traverse
+
+**Returns:**
+- Array of absolute file paths
+
+**Behavior:**
+- Recursively explores subdirectories
+- Returns only file paths (excludes directories)
+- Preserves full path structure
+
+## Constants
+
+**File:** `src/routes/llms-docs.ts:10`
+
+```typescript
+const TOKENS_PER_CHARACTER = 4;
+```
+
+Estimation ratio for converting character count to token count in LLM documentation responses.

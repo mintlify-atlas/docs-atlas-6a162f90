@@ -1,0 +1,234 @@
+---
+title: Upgrading Dependencies
+description: How to safely upgrade dependencies in the BE Monorepo
+---
+
+# Upgrading Dependencies
+
+The BE Monorepo follows a strict exact-version policy for dependencies to ensure reproducible builds and prevent unexpected breaking changes.
+
+## Exact Version Policy
+
+**All dependencies must use exact versions** (no `^` or `~` prefixes).
+
+```json
+// ✅ Good
+{
+  "dependencies": {
+    "hono": "4.11.9",
+    "zod": "4.3.6"
+  }
+}
+
+// ❌ Bad
+{
+  "dependencies": {
+    "hono": "^4.11.9",
+    "zod": "~4.3.6"
+  }
+}
+```
+
+This policy ensures:
+- **Reproducibility**: Same dependencies across all environments
+- **Predictability**: No surprise updates from semver ranges
+- **Control**: Explicit decision for every version change
+
+## Upgrade Workflow
+
+Follow this workflow when upgrading dependencies:
+
+### 1. Check for Updates
+
+Run the dependency bump command:
+
+```bash
+bun bump:deps
+```
+
+This uses `npm-check-updates` to check for outdated dependencies across:
+- Production dependencies (`dependencies`)
+- Development dependencies (`devDependencies`)
+- Optional dependencies (`optionalDependencies`)
+- Package manager version (`packageManager`)
+- Peer dependencies (`peerDependencies`)
+
+The command automatically:
+- Checks all nested workspaces (`--deep`)
+- Updates all dependency types (`--dep prod,dev,optional,packageManager,peer`)
+- Writes updates to `package.json` files (`-u`)
+- Excludes certain packages (`-x @babel*,tamagui`)
+
+### 2. Install Updates
+
+After reviewing the proposed changes, install the updated dependencies:
+
+```bash
+bun install
+```
+
+This updates `bun.lock` with the new dependency versions.
+
+### 3. Run Tests
+
+Verify that the updates don't break functionality:
+
+```bash
+bun hono test
+```
+
+Ensure all tests pass before proceeding.
+
+### 4. Build (Optional)
+
+If you use Node.js runtime, verify the build succeeds:
+
+```bash
+bun hono node:build
+```
+
+### 5. Lint and Type Check
+
+Run linting and type checking to catch any issues:
+
+```bash
+bun lint-typecheck
+```
+
+Fix any errors that arise from the dependency updates.
+
+### 6. Create a Changeset
+
+Document the dependency updates using changesets:
+
+```bash
+bun cs
+```
+
+Select the affected packages and provide a description of the changes:
+
+```
+Which packages would you like to include?
+✓ @workspace/hono
+
+What kind of change is this for @workspace/hono?
+○ major
+○ minor
+● patch
+
+Summary: Update dependencies to latest versions
+```
+
+### 7. Version the Changeset
+
+Update package versions based on the changeset:
+
+```bash
+bun cs:v
+```
+
+This updates:
+- Package versions in `package.json`
+- `CHANGELOG.md` files
+- Consumes the changeset files
+
+See [Changesets](/development/changesets) for more details.
+
+## Excluded Packages
+
+Some packages are excluded from automatic updates:
+
+- **`@babel*`**: Babel packages (if used)
+- **`tamagui`**: UI library (if used)
+
+These require manual review and testing before upgrading.
+
+## Full Workflow Example
+
+Complete example of upgrading dependencies:
+
+```bash
+# 1. Check for updates and write to package.json
+bun bump:deps
+
+# 2. Install updated dependencies
+bun install
+
+# 3. Run tests
+bun hono test
+
+# 4. (Optional) Build for Node.js
+bun hono node:build
+
+# 5. Run linting and type checking
+bun lint-typecheck
+
+# 6. Create a changeset
+bun cs
+# Follow prompts to document changes
+
+# 7. Version the changeset
+bun cs:v
+
+# 8. Commit changes
+git add .
+git commit -m "chore: upgrade dependencies"
+```
+
+## Common Issues
+
+### Breaking Changes
+
+If a dependency introduces breaking changes:
+
+1. Read the package's `CHANGELOG.md` or release notes
+2. Update your code to match the new API
+3. Run tests to verify fixes
+4. Document breaking changes in your changeset
+
+### Type Errors
+
+New dependency versions may introduce type errors:
+
+1. Run `bun lint-typecheck` to identify issues
+2. Update type definitions or code as needed
+3. Consider updating `@types/*` packages if using TypeScript
+
+### Failed Tests
+
+If tests fail after updates:
+
+1. Review test output for specific failures
+2. Check if the dependency changed its behavior
+3. Update tests or code to match new behavior
+4. Consider rolling back the problematic update
+
+### Lock File Conflicts
+
+If you encounter `bun.lock` conflicts:
+
+```bash
+# Remove lock file and node_modules, then reinstall
+bun run clean
+```
+
+## Automated Updates
+
+Consider setting up automated dependency updates using:
+
+- **Dependabot**: GitHub's automated dependency updates
+- **Renovate**: Configurable dependency update bot
+
+Configure these tools to:
+- Create pull requests for updates
+- Group updates by type (major, minor, patch)
+- Auto-merge patch updates after tests pass
+
+## Best Practices
+
+1. **Update regularly**: Don't let dependencies get too outdated
+2. **Update incrementally**: Update a few packages at a time
+3. **Test thoroughly**: Always run the full test suite
+4. **Read changelogs**: Understand what changed before updating
+5. **Document changes**: Use changesets to track dependency updates
+6. **Review PRs carefully**: Check for breaking changes in automated PRs

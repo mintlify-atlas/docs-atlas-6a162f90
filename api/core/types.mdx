@@ -1,0 +1,296 @@
+---
+title: 'Types'
+description: 'Type definitions and interfaces for the Core Package'
+icon: 'brackets-curly'
+---
+
+## Overview
+
+The Core Package provides TypeScript type definitions for common patterns and data structures used throughout the application.
+
+## Core Types
+
+### Import
+
+```typescript
+import type { URLSearchParamsInit } from '@workspace/core/types/core';
+```
+
+### URLSearchParamsInit
+
+A flexible type for initializing URL search parameters. Compatible with the native `URLSearchParams` constructor.
+
+```typescript
+type URLSearchParamsInit =
+  | string
+  | [string, string][]
+  | Record<string, string | string[]>
+  | URLSearchParams;
+```
+
+## Usage Examples
+
+### String Format
+
+Use a query string directly:
+
+```typescript
+const params: URLSearchParamsInit = 'foo=bar&baz=qux';
+
+const searchParams = new URLSearchParams(params);
+console.log(searchParams.toString()); // 'foo=bar&baz=qux'
+```
+
+### Array of Tuples
+
+Use an array of key-value pairs:
+
+```typescript
+const params: URLSearchParamsInit = [
+  ['page', '1'],
+  ['limit', '10'],
+  ['sort', 'name'],
+  ['sort', 'date'] // Multiple values for same key
+];
+
+const searchParams = new URLSearchParams(params);
+console.log(searchParams.toString()); // 'page=1&limit=10&sort=name&sort=date'
+```
+
+### Record Object
+
+Use an object with string values or arrays:
+
+```typescript
+const params: URLSearchParamsInit = {
+  page: '1',
+  limit: '10',
+  tags: ['javascript', 'typescript'], // Array values
+  search: 'core package'
+};
+
+// Note: Record format requires conversion for array values
+const searchParams = new URLSearchParams();
+for (const [key, value] of Object.entries(params)) {
+  if (Array.isArray(value)) {
+    value.forEach(v => searchParams.append(key, v));
+  } else {
+    searchParams.append(key, value);
+  }
+}
+```
+
+### URLSearchParams Instance
+
+Use an existing `URLSearchParams` object:
+
+```typescript
+const existing = new URLSearchParams('foo=bar');
+const params: URLSearchParamsInit = existing;
+
+// Can be passed directly
+const searchParams = new URLSearchParams(params);
+```
+
+## Type-Safe HTTP Requests
+
+Use `URLSearchParamsInit` with the HTTP service:
+
+```typescript
+import { Http } from '@workspace/core/services/http';
+import type { URLSearchParamsInit } from '@workspace/core/types/core';
+
+const http = new Http({
+  prefixUrl: 'https://api.example.com'
+});
+
+function fetchUsers(params: URLSearchParamsInit) {
+  return http.instance.get('users', {
+    searchParams: params
+  });
+}
+
+// Call with different formats
+await fetchUsers('status=active');
+await fetchUsers([['status', 'active'], ['role', 'admin']]);
+await fetchUsers({ status: 'active', role: 'admin' });
+```
+
+## Utility Functions
+
+Helper functions for working with URL search parameters:
+
+```typescript
+/**
+ * Convert URLSearchParamsInit to URLSearchParams
+ */
+function toURLSearchParams(init: URLSearchParamsInit): URLSearchParams {
+  if (init instanceof URLSearchParams) {
+    return init;
+  }
+  
+  const params = new URLSearchParams();
+  
+  if (typeof init === 'string') {
+    return new URLSearchParams(init);
+  }
+  
+  if (Array.isArray(init)) {
+    return new URLSearchParams(init);
+  }
+  
+  // Record format
+  for (const [key, value] of Object.entries(init)) {
+    if (Array.isArray(value)) {
+      value.forEach(v => params.append(key, v));
+    } else {
+      params.append(key, value);
+    }
+  }
+  
+  return params;
+}
+
+/**
+ * Convert URLSearchParams to a plain object
+ */
+function searchParamsToObject(params: URLSearchParams): Record<string, string | string[]> {
+  const result: Record<string, string | string[]> = {};
+  
+  for (const [key, value] of params.entries()) {
+    const existing = result[key];
+    
+    if (existing === undefined) {
+      result[key] = value;
+    } else if (Array.isArray(existing)) {
+      existing.push(value);
+    } else {
+      result[key] = [existing, value];
+    }
+  }
+  
+  return result;
+}
+
+// Usage
+const params = toURLSearchParams({ page: '1', tags: ['js', 'ts'] });
+console.log(params.toString()); // 'page=1&tags=js&tags=ts'
+
+const obj = searchParamsToObject(params);
+console.log(obj); // { page: '1', tags: ['js', 'ts'] }
+```
+
+## Best Practices
+
+### Always Encode Values
+
+URL parameters should always be properly encoded:
+
+```typescript
+const search = 'hello world'; // Contains space
+const params = new URLSearchParams({
+  q: search // Automatically encoded as 'hello+world'
+});
+
+// Or manually encode
+const encoded = encodeURIComponent(search); // 'hello%20world'
+```
+
+### Handle Multiple Values
+
+Some query parameters can have multiple values:
+
+```typescript
+const params = new URLSearchParams();
+params.append('tag', 'javascript');
+params.append('tag', 'typescript');
+params.append('tag', 'react');
+
+// Results in: 'tag=javascript&tag=typescript&tag=react'
+
+// Get all values
+const tags = params.getAll('tag');
+console.log(tags); // ['javascript', 'typescript', 'react']
+```
+
+### Type-Safe API Functions
+
+Define functions with specific parameter shapes:
+
+```typescript
+interface UserListParams {
+  page?: number;
+  limit?: number;
+  status?: 'active' | 'inactive';
+  role?: string[];
+  search?: string;
+}
+
+function buildUserParams(params: UserListParams): URLSearchParamsInit {
+  const entries: [string, string][] = [];
+  
+  if (params.page !== undefined) {
+    entries.push(['page', params.page.toString()]);
+  }
+  
+  if (params.limit !== undefined) {
+    entries.push(['limit', params.limit.toString()]);
+  }
+  
+  if (params.status) {
+    entries.push(['status', params.status]);
+  }
+  
+  if (params.role) {
+    params.role.forEach(r => entries.push(['role', r]));
+  }
+  
+  if (params.search) {
+    entries.push(['search', params.search]);
+  }
+  
+  return entries;
+}
+
+// Usage
+const params = buildUserParams({
+  page: 1,
+  limit: 10,
+  status: 'active',
+  role: ['admin', 'user'],
+  search: 'john'
+});
+
+await http.instance.get('users', {
+  searchParams: params
+});
+```
+
+### Validate Parameters
+
+Validate URL parameters before making requests:
+
+```typescript
+import { z } from 'zod';
+
+const userParamsSchema = z.object({
+  page: z.number().int().positive().optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  status: z.enum(['active', 'inactive']).optional(),
+  search: z.string().min(1).max(100).optional()
+});
+
+function fetchUsers(params: unknown) {
+  const validated = userParamsSchema.parse(params);
+  
+  return http.instance.get('users', {
+    searchParams: buildUserParams(validated)
+  });
+}
+```
+
+## Additional Resources
+
+- [URLSearchParams MDN Documentation](https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams)
+- [Ky Library Documentation](https://github.com/sindresorhus/ky)
+- [TypeScript Utility Types](https://www.typescriptlang.org/docs/handbook/utility-types.html)

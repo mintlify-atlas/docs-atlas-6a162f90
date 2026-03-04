@@ -1,0 +1,503 @@
+---
+title: "Project structure"
+description: "Understanding the BE Monorepo organization, workspaces, and file layout"
+---
+
+## Monorepo overview
+
+BE Monorepo uses Bun workspaces to organize multiple packages and applications in a single repository. This structure enables code sharing, consistent tooling, and simplified dependency management across all projects.
+
+```
+be-monorepo/
+├── apps/                    # Applications
+│   └── hono/               # Hono API server
+├── packages/               # Shared packages
+│   ├── core/              # Shared utilities and types
+│   └── typescript-config/ # Shared TypeScript config
+├── docker/                # Docker Compose configuration
+├── scripts/               # Build and utility scripts
+└── package.json           # Root workspace configuration
+```
+
+## Workspace configuration
+
+The root `package.json` defines the workspace structure:
+
+```json package.json
+{
+  "name": "be-monorepo",
+  "version": "1.0.0",
+  "packageManager": "bun@1.3.10",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=24.14.0"
+  }
+}
+```
+
+<Note>
+  The `workspaces` field tells Bun to manage dependencies for all packages in `apps/*` and `packages/*` directories.
+</Note>
+
+## Applications
+
+The `apps/` directory contains deployable applications. Currently, there's one application:
+
+### @workspace/hono
+
+<Card title="Hono API server" icon="server" href="/hono/setup">
+  Main backend API built with Hono 4, including authentication, database, and observability.
+</Card>
+
+<AccordionGroup>
+  <Accordion title="Directory structure" icon="folder-tree">
+    ```
+    apps/hono/
+    ├── src/
+    │   ├── app.ts                 # Main Hono application
+    │   ├── bun.ts                 # Bun runtime entry point
+    │   ├── node.ts                # Node.js runtime entry point
+    │   ├── instrumentation.ts     # OpenTelemetry setup
+    │   ├── auth/                  # Authentication configuration
+    │   │   └── libs/
+    │   │       └── index.ts       # Better Auth setup
+    │   ├── core/                  # App-specific utilities
+    │   │   ├── assets/           # Static assets
+    │   │   ├── constants/        # App constants and env
+    │   │   ├── types/            # TypeScript types
+    │   │   └── utils/            # Utility functions
+    │   ├── db/                   # Database layer
+    │   │   ├── schema.ts         # Drizzle ORM schema
+    │   │   ├── index.ts          # Database connection
+    │   │   └── migrations/       # Migration files
+    │   └── routes/               # API routes
+    │       ├── index.ts          # Route registration
+    │       ├── auth.ts           # Auth endpoints
+    │       ├── llms-docs.ts      # Documentation endpoints
+    │       └── middlewares/      # Route-specific middleware
+    ├── docs/                     # App-specific documentation
+    ├── package.json              # App dependencies
+    ├── tsconfig.json             # TypeScript config
+    └── .env.example              # Environment template
+    ```
+  </Accordion>
+
+  <Accordion title="Key files" icon="file">
+    <ResponseField name="app.ts" type="file">
+      Main application setup with middleware, error handling, and route registration. This is where the OpenAPIHono instance is created and configured.
+    </ResponseField>
+
+    <ResponseField name="bun.ts" type="file">
+      Entry point for Bun runtime. Exports the app with port configuration for Bun's native server.
+    </ResponseField>
+
+    <ResponseField name="node.ts" type="file">
+      Entry point for Node.js runtime. Uses `@hono/node-server` adapter for compatibility.
+    </ResponseField>
+
+    <ResponseField name="instrumentation.ts" type="file">
+      OpenTelemetry SDK initialization. Sets up traces, metrics, logs, and instrumentation for observability.
+    </ResponseField>
+
+    <ResponseField name="db/schema.ts" type="file">
+      Drizzle ORM schema definitions. Defines all database tables, columns, and relationships.
+    </ResponseField>
+
+    <ResponseField name="routes/index.ts" type="file">
+      Route registration. Combines all route modules and registers them with the Hono app.
+    </ResponseField>
+  </Accordion>
+
+  <Accordion title="Package dependencies" icon="box">
+    ```json apps/hono/package.json
+    {
+      "name": "@workspace/hono",
+      "dependencies": {
+        "hono": "4.11.9",
+        "@hono/zod-openapi": "1.2.2",
+        "@hono/otel": "1.1.0",
+        "better-auth": "1.4.18",
+        "drizzle-orm": "0.45.1",
+        "@opentelemetry/sdk-node": "0.212.0",
+        "@workspace/core": "workspace:*",
+        "zod": "4.3.6"
+      }
+    }
+    ```
+    
+    The `workspace:*` protocol links to the local `@workspace/core` package.
+  </Accordion>
+</AccordionGroup>
+
+## Shared packages
+
+The `packages/` directory contains reusable code shared across applications.
+
+### @workspace/core
+
+<Card title="Core utilities" icon="cube" href="/api/core/apis">
+  Shared constants, types, utilities, and HTTP services used across the monorepo.
+</Card>
+
+<AccordionGroup>
+  <Accordion title="Directory structure" icon="folder-tree">
+    ```
+    packages/core/
+    ├── src/
+    │   ├── apis/              # HTTP API clients
+    │   │   └── auth.ts       # Auth API client
+    │   ├── assets/           # Shared static files
+    │   ├── constants/        # Shared constants
+    │   │   ├── core.ts      # Core constants
+    │   │   └── http.ts      # HTTP status codes
+    │   ├── services/         # Shared services
+    │   │   └── http.ts      # HTTP client (ky)
+    │   ├── types/           # Shared TypeScript types
+    │   │   └── core.ts      # Core types
+    │   └── utils/           # Utility functions
+    │       ├── core.ts      # General utilities
+    │       ├── date.ts      # Date helpers
+    │       ├── invariant.ts # Assertions
+    │       └── logger.ts    # Logging utilities
+    ├── package.json
+    └── tsconfig.json
+    ```
+  </Accordion>
+
+  <Accordion title="Package exports" icon="file-export">
+    The package uses path-based exports for tree-shaking and explicit imports:
+    
+    ```json packages/core/package.json
+    {
+      "name": "@workspace/core",
+      "type": "module",
+      "exports": {
+        "./apis/*": "./src/apis/*.ts",
+        "./assets/*": "./src/assets/*",
+        "./constants/*": "./src/constants/*.ts",
+        "./services/*": "./src/services/*.ts",
+        "./types/*": "./src/types/*.ts",
+        "./utils/*": "./src/utils/*.ts"
+      }
+    }
+    ```
+    
+    Usage in apps:
+    ```typescript
+    import { HTTP_STATUS_CODES } from "@workspace/core/constants/http";
+    import { logger } from "@workspace/core/utils/logger";
+    import type { ApiResponse } from "@workspace/core/types/core";
+    ```
+  </Accordion>
+
+  <Accordion title="Dependencies" icon="box">
+    ```json packages/core/package.json
+    {
+      "dependencies": {
+        "ky": "1.14.3",          // Modern HTTP client
+        "radashi": "12.7.1",      // Lodash alternative
+        "type-fest": "5.4.4",     // Useful TypeScript types
+        "zod": "4.3.6"            // Schema validation
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### @workspace/typescript-config
+
+<Card title="TypeScript configuration" icon="code" href="/concepts/typescript-config">
+  Shared TypeScript compiler configurations for consistent settings across the monorepo.
+</Card>
+
+<AccordionGroup>
+  <Accordion title="Configuration files" icon="gear">
+    ```
+    packages/typescript-config/
+    ├── base.json          # Base configuration for all packages
+    ├── node.json          # Node.js specific settings
+    └── package.json
+    ```
+    
+    Base configuration (`base.json`):
+    ```json
+    {
+      "$schema": "https://json.schemastore.org/tsconfig",
+      "compilerOptions": {
+        "strict": true,
+        "esModuleInterop": true,
+        "skipLibCheck": true,
+        "target": "ES2022",
+        "module": "NodeNext",
+        "moduleResolution": "NodeNext",
+        "resolveJsonModule": true,
+        "isolatedModules": true,
+        "noUncheckedIndexedAccess": true,
+        "declaration": true,
+        "declarationMap": true
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Usage in packages" icon="link">
+    Applications and packages extend the shared configuration:
+    
+    ```json apps/hono/tsconfig.json
+    {
+      "extends": "@workspace/typescript-config/base.json",
+      "compilerOptions": {
+        "outDir": "./dist",
+        "rootDir": "./src",
+        "paths": {
+          "@/*": ["./src/*"]
+        }
+      },
+      "include": ["src/**/*"]
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Infrastructure
+
+### Docker configuration
+
+The `docker/` directory contains Docker Compose setup for local development:
+
+```yaml docker/docker-compose.yml
+services:
+  postgres_db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: postgres_db
+      POSTGRES_USER: postgres_db
+      POSTGRES_PASSWORD: postgres_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_db_data:/var/lib/postgresql/data
+
+  redis_cache:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_cache_data:/data
+
+  otel_lgtm:
+    image: grafana/otel-lgtm:latest
+    ports:
+      - "3111:3000"    # Grafana UI
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
+```
+
+Start all services with:
+```bash
+bun compose:up
+```
+
+### Root configuration files
+
+<ResponseField name="package.json" type="file">
+  Root workspace configuration with scripts, workspaces definition, and shared devDependencies.
+</ResponseField>
+
+<ResponseField name="tsconfig.json" type="file">
+  Root TypeScript config that extends `@workspace/typescript-config/base.json`.
+</ResponseField>
+
+<ResponseField name="biome.jsonc" type="file">
+  Biome linter and formatter configuration. Uses `ultracite/biome/core` preset with custom rule overrides.
+</ResponseField>
+
+<ResponseField name="bunfig.toml" type="file">
+  Bun configuration for exact versioning and isolated linking:
+  ```toml
+  [install]
+  exact = true
+  linker = "isolated"
+  ```
+</ResponseField>
+
+<ResponseField name=".changeset/" type="directory">
+  Changesets configuration for version management and changelog generation.
+</ResponseField>
+
+<ResponseField name=".github/workflows/" type="directory">
+  GitHub Actions CI/CD workflows for testing, linting, and deployment.
+</ResponseField>
+
+<ResponseField name=".husky/" type="directory">
+  Git hooks for running linters and tests before commits.
+</ResponseField>
+
+## How workspaces work
+
+<Steps>
+  <Step title="Dependency resolution">
+    When you run `bun install` at the root, Bun:
+    1. Reads all `package.json` files in the workspace
+    2. Resolves dependencies and checks for conflicts
+    3. Creates a single `node_modules` at the root
+    4. Links workspace packages using the `workspace:*` protocol
+  </Step>
+
+  <Step title="Shared dependencies">
+    Common dependencies are deduplicated at the root:
+    ```
+    node_modules/
+    ├── typescript/      # Shared across all packages
+    ├── zod/            # Shared between hono and core
+    └── .bin/           # Shared binaries
+    ```
+  </Step>
+
+  <Step title="Package linking">
+    Workspace packages are linked, not copied:
+    ```
+    apps/hono/node_modules/
+    └── @workspace/
+        └── core/       # Symlink to packages/core
+    ```
+    
+    Changes to `@workspace/core` are immediately available in `@workspace/hono`.
+  </Step>
+
+  <Step title="Running scripts">
+    Execute scripts in specific workspaces using the `--filter` flag:
+    ```bash
+    bun --filter @workspace/hono dev
+    # Shorthand defined in root package.json:
+    bun hono dev
+    ```
+  </Step>
+</Steps>
+
+## File organization patterns
+
+<Tabs>
+  <Tab title="Feature-based">
+    Group related files by feature:
+    ```
+    src/routes/
+    ├── auth.ts           # Auth routes and handlers
+    ├── users.ts          # User management routes
+    └── middlewares/
+        └── auth.ts       # Auth middleware
+    ```
+  </Tab>
+
+  <Tab title="Layer-based">
+    Separate by architectural layer:
+    ```
+    src/
+    ├── routes/          # HTTP layer
+    ├── services/        # Business logic
+    ├── db/             # Data access
+    └── types/          # Type definitions
+    ```
+  </Tab>
+
+  <Tab title="Domain-based">
+    Organize by business domain:
+    ```
+    src/
+    ├── auth/
+    │   ├── routes.ts
+    │   ├── service.ts
+    │   └── types.ts
+    └── users/
+        ├── routes.ts
+        ├── service.ts
+        └── types.ts
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  BE Monorepo uses a hybrid approach: feature-based for routes and layer-based for infrastructure concerns like database and observability.
+</Note>
+
+## Adding new packages
+
+To add a new shared package:
+
+<Steps>
+  <Step title="Create package directory">
+    ```bash
+    mkdir -p packages/my-package/src
+    cd packages/my-package
+    ```
+  </Step>
+
+  <Step title="Create package.json">
+    ```json packages/my-package/package.json
+    {
+      "name": "@workspace/my-package",
+      "version": "1.0.0",
+      "type": "module",
+      "private": true,
+      "exports": {
+        ".": "./src/index.ts"
+      }
+    }
+    ```
+  </Step>
+
+  <Step title="Create tsconfig.json">
+    ```json packages/my-package/tsconfig.json
+    {
+      "extends": "@workspace/typescript-config/base.json",
+      "include": ["src/**/*"]
+    }
+    ```
+  </Step>
+
+  <Step title="Add to workspace">
+    The package is automatically discovered because of the `packages/*` workspace pattern.
+    
+    Run `bun install` to link it.
+  </Step>
+
+  <Step title="Use in apps">
+    Add to app dependencies:
+    ```json apps/hono/package.json
+    {
+      "dependencies": {
+        "@workspace/my-package": "workspace:*"
+      }
+    }
+    ```
+    
+    Then import:
+    ```typescript
+    import { something } from "@workspace/my-package";
+    ```
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Database schema" icon="database" href="/database/schema-design">
+    Learn about the database schema and migrations
+  </Card>
+
+  <Card title="Adding routes" icon="route" href="/hono/api-routes">
+    Create new API endpoints with OpenAPI docs
+  </Card>
+
+  <Card title="Shared utilities" icon="toolbox" href="/api/core/utils">
+    Explore the core package utilities
+  </Card>
+
+  <Card title="TypeScript config" icon="code" href="/concepts/typescript-config">
+    Understand the TypeScript setup
+  </Card>
+</CardGroup>

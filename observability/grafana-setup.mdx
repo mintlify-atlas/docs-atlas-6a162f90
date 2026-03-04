@@ -1,0 +1,479 @@
+---
+title: Grafana Setup
+description: Setting up and using Grafana with the LGTM stack
+---
+
+## Overview
+
+The BE Monorepo uses the Grafana LGTM (Loki, Grafana, Tempo, Mimir/Prometheus) stack for observability, packaged in the `grafana/otel-lgtm` Docker image.
+
+## Docker Compose Configuration
+
+The LGTM stack is defined in `docker/docker-compose.yml`:
+
+```yaml
+services:
+  otel_lgtm:
+    image: docker.io/grafana/otel-lgtm:latest
+    ports:
+      - "3111:3000"  # Grafana UI
+      - "4317:4317"  # OTLP gRPC receiver
+      - "4318:4318"  # OTLP HTTP receiver
+    volumes:
+      - ./container/grafana:/data/grafana
+      - ./container/prometheus:/data/prometheus
+      - ./container/loki:/data/loki
+    environment:
+      - GF_PATHS_DATA=/data/grafana
+    env_file:
+      - ./.env
+```
+
+See `docker/docker-compose.yml:25`
+
+## Starting the Stack
+
+### 1. Start Docker Compose
+
+```bash
+cd docker
+docker compose up -d otel_lgtm
+```
+
+### 2. Verify Services
+
+Check that all containers are running:
+
+```bash
+docker compose ps
+```
+
+Expected output:
+
+```
+NAME                IMAGE                          STATUS
+otel_lgtm           grafana/otel-lgtm:latest       Up
+postgres_db         postgres:17                    Up
+redis_cache         redis:latest                   Up
+```
+
+### 3. Check Logs
+
+```bash
+docker compose logs -f otel_lgtm
+```
+
+## Accessing Services
+
+### Grafana UI
+
+- URL: `http://localhost:3111`
+- Default username: `admin`
+- Default password: `admin`
+
+You'll be prompted to change the password on first login.
+
+### OTLP Endpoints
+
+The application sends telemetry data to these endpoints:
+
+- **HTTP**: `http://localhost:4318`
+- **gRPC**: `http://localhost:4317`
+
+Configured in your `.env`:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
+
+## Data Sources
+
+The LGTM image comes with pre-configured data sources:
+
+### 1. Prometheus (Metrics)
+
+- **Name**: Prometheus
+- **Type**: Prometheus
+- **URL**: `http://localhost:9090`
+
+Query metrics using PromQL:
+
+```promql
+rate(http_requests_total_metric[5m])
+```
+
+### 2. Tempo (Traces)
+
+- **Name**: Tempo
+- **Type**: Tempo
+- **URL**: `http://localhost:3200`
+
+Search traces by:
+- Trace ID
+- Service name
+- Operation name
+- Tags
+
+### 3. Loki (Logs)
+
+- **Name**: Loki
+- **Type**: Loki
+- **URL**: `http://localhost:3100`
+
+Query logs using LogQL:
+
+```logql
+{service_name="be-monorepo"} |= "error"
+```
+
+### 4. Pyroscope (Profiles)
+
+- **Name**: Pyroscope
+- **Type**: Pyroscope
+- **URL**: `http://localhost:4040`
+
+View continuous profiling data for performance analysis.
+
+## Using Grafana
+
+### Explore View
+
+The Explore view is ideal for ad-hoc querying:
+
+1. Click **Explore** in the left sidebar
+2. Select a data source (Prometheus, Tempo, Loki)
+3. Enter your query
+4. Click **Run query**
+
+### Querying Logs
+
+#### Basic Log Query
+
+```logql
+{service_name="be-monorepo"}
+```
+
+#### Filter by Severity
+
+```logql
+{service_name="be-monorepo"} | json | severity="ERROR"
+```
+
+#### Search for Text
+
+```logql
+{service_name="be-monorepo"} |= "database connection"
+```
+
+#### Filter by Request ID
+
+```logql
+{service_name="be-monorepo"} | json | requestId="abc123"
+```
+
+### Querying Traces
+
+#### Search by Service
+
+1. Go to Explore → Tempo
+2. Select **Search** tab
+3. Filter by:
+   - **Service Name**: `be-monorepo`
+   - **Span Name**: `GET /api/users`
+   - **Status**: `error`
+
+#### View Trace Details
+
+Click on a trace to see:
+- Full request timeline
+- Span hierarchy
+- Span attributes
+- Logs correlated with the trace
+- Related traces
+
+### Querying Metrics
+
+#### HTTP Request Rate
+
+```promql
+sum(rate(http_requests_total_metric[5m])) by (route)
+```
+
+#### Response Time Percentiles
+
+```promql
+histogram_quantile(0.95, 
+  sum(rate(http_request_duration_metric_bucket[5m])) by (le, route)
+)
+```
+
+#### Error Rate
+
+```promql
+sum(rate(http_requests_total_metric{status_class="5xx"}[5m]))
+/ sum(rate(http_requests_total_metric[5m]))
+* 100
+```
+
+## Creating Dashboards
+
+### 1. Create New Dashboard
+
+1. Click **+** → **Create Dashboard**
+2. Click **Add visualization**
+3. Select a data source
+4. Configure your query
+5. Customize visualization (graph, table, gauge, etc.)
+6. Click **Save**
+
+### 2. Example HTTP Dashboard
+
+#### Request Rate Panel
+
+```promql
+sum(rate(http_requests_total_metric[5m])) by (route)
+```
+
+**Visualization**: Time series graph
+
+#### Response Time Panel
+
+```promql
+histogram_quantile(0.95, 
+  sum(rate(http_request_duration_metric_bucket[5m])) by (le)
+)
+```
+
+**Visualization**: Time series graph
+
+#### Status Code Distribution Panel
+
+```promql
+sum(http_requests_total_metric) by (status_class)
+```
+
+**Visualization**: Pie chart
+
+#### Active Requests Panel
+
+```promql
+sum(http_server_active_requests)
+```
+
+**Visualization**: Stat/Gauge
+
+### 3. Save Dashboard
+
+1. Click **Save dashboard** icon (💾)
+2. Enter a name: "HTTP Metrics"
+3. Click **Save**
+
+## Correlating Telemetry Data
+
+One of the most powerful features is correlating logs, traces, and metrics.
+
+### Logs → Traces
+
+1. Query logs in Explore
+2. Find a log entry with a trace ID
+3. Click **Tempo** link next to the trace ID
+4. View the full trace
+
+### Traces → Logs
+
+1. Open a trace in Tempo
+2. Click on a span
+3. Click **Logs for this span**
+4. View correlated logs
+
+### Metrics → Traces
+
+1. Find a metric spike in a dashboard
+2. Click on the spike
+3. Select **View traces**
+4. Drill down into individual requests
+
+## Data Persistence
+
+Data is persisted in Docker volumes:
+
+```yaml
+volumes:
+  - ./container/grafana:/data/grafana
+  - ./container/prometheus:/data/prometheus
+  - ./container/loki:/data/loki
+```
+
+See `docker/docker-compose.yml:32`
+
+### Backup Data
+
+```bash
+cd docker
+tar -czf observability-backup.tar.gz container/
+```
+
+### Clear Data
+
+```bash
+docker compose down -v
+rm -rf container/grafana container/prometheus container/loki
+```
+
+## Alerting
+
+Grafana supports alerting based on metrics and logs.
+
+### Creating an Alert
+
+1. Go to **Alerting** → **Alert rules**
+2. Click **New alert rule**
+3. Define the query:
+   ```promql
+   rate(http_requests_total_metric{status_class="5xx"}[5m]) > 0.1
+   ```
+4. Set evaluation interval: `1m`
+5. Add notification channel (email, Slack, etc.)
+6. Save
+
+### Alert Example: High Error Rate
+
+**Condition**: Error rate > 5% for 5 minutes
+
+```promql
+sum(rate(http_requests_total_metric{status_class="5xx"}[5m]))
+/ sum(rate(http_requests_total_metric[5m]))
+> 0.05
+```
+
+## Troubleshooting
+
+### Application Not Sending Data
+
+1. Check OTLP endpoint configuration:
+   ```bash
+   echo $OTEL_EXPORTER_OTLP_ENDPOINT
+   ```
+
+2. Verify network connectivity:
+   ```bash
+   curl http://localhost:4318/v1/traces
+   ```
+
+3. Check application logs:
+   ```bash
+   npm run dev 2>&1 | grep -i otel
+   ```
+
+### No Data in Grafana
+
+1. Verify data sources are configured
+2. Check time range (top right corner)
+3. Query Prometheus directly:
+   ```bash
+   curl http://localhost:9090/api/v1/query?query=up
+   ```
+
+### Container Issues
+
+1. Restart the container:
+   ```bash
+   docker compose restart otel_lgtm
+   ```
+
+2. Check container logs:
+   ```bash
+   docker compose logs otel_lgtm
+   ```
+
+3. Verify port availability:
+   ```bash
+   netstat -an | grep -E '3111|4317|4318'
+   ```
+
+## Performance Tuning
+
+### Retention Policies
+
+Configure how long data is retained:
+
+**Prometheus** (metrics):
+```bash
+--storage.tsdb.retention.time=15d
+```
+
+**Loki** (logs):
+```yaml
+limits_config:
+  retention_period: 168h  # 7 days
+```
+
+**Tempo** (traces):
+```yaml
+retention:
+  traces:
+    retention_period: 168h  # 7 days
+```
+
+### Resource Limits
+
+Limit container resources:
+
+```yaml
+otel_lgtm:
+  # ...
+  deploy:
+    resources:
+      limits:
+        cpus: '2'
+        memory: 4G
+```
+
+## Advanced Features
+
+### Service Graph
+
+Visualize service dependencies:
+1. Go to Explore → Tempo
+2. Select **Service Graph** tab
+3. View service topology
+
+### Trace to Metrics
+
+Generate metrics from traces:
+1. Go to Explore → Tempo
+2. Run a trace query
+3. Click **Metrics** tab
+4. View auto-generated metrics
+
+### Exemplars
+
+Link metrics to traces:
+1. Query a metric in Prometheus
+2. Click on a data point
+3. View exemplar traces
+
+## Resources
+
+- [Grafana Documentation](https://grafana.com/docs/)
+- [Prometheus Query Language](https://prometheus.io/docs/prometheus/latest/querying/basics/)
+- [LogQL Documentation](https://grafana.com/docs/loki/latest/logql/)
+- [Tempo Documentation](https://grafana.com/docs/tempo/latest/)
+- [OpenTelemetry Specification](https://opentelemetry.io/docs/specs/otel/)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Logging" icon="file-lines" href="/observability/logging">
+    Learn about structured logging
+  </Card>
+  <Card title="Tracing" icon="diagram-project" href="/observability/tracing">
+    Implement custom traces
+  </Card>
+  <Card title="Metrics" icon="chart-line" href="/observability/metrics">
+    Create custom metrics
+  </Card>
+  <Card title="Overview" icon="eye" href="/observability/overview">
+    Back to observability overview
+  </Card>
+</CardGroup>

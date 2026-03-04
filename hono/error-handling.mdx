@@ -1,0 +1,322 @@
+---
+title: Error Handling
+description: Global error handling, validation errors, and request tracking
+---
+
+The Hono app implements comprehensive error handling with request ID tracking and custom error responses.
+
+## Global Error Handler
+
+All errors are caught by the global error handler in `src/app.ts:72`:
+
+```typescript
+import { HTTPException } from "hono/http-exception";
+import { HTTPError } from "ky";
+import { prettifyError, ZodError } from "zod";
+import { HTTP_STATUS_CODES } from "@/core/constants/http.js";
+import { logger } from "@/core/utils/logger.js";
+
+app.onError(async (error, c) => {
+  const reqId = c.get("requestId");
+
+  if (error instanceof ZodError) {
+    const errorMessage = prettifyError(error);
+    logger.error(`ZodError with requestId: ${reqId}`, {
+      error: errorMessage,
+    });
+    return c.json({ message: errorMessage }, HTTP_STATUS_CODES.BAD_REQUEST);
+  }
+  
+  if (error instanceof HTTPError) {
+    const errors = await error.response.json();
+    const response = { message: error.message, error: errors };
+    logger.error(`HTTPError with requestId: ${reqId}`, response);
+    return c.json(response, HTTP_STATUS_CODES.BAD_REQUEST);
+  }
+  
+  if (error instanceof HTTPException) {
+    logger.error(`HTTPException with requestId: ${reqId}`, {
+      error: error.message,
+    });
+    // Hono built-in HTTP error
+    return error.getResponse();
+  }
+
+  logger.error(`UnknownError with requestId: ${reqId}`, {
+    error: error.message,
+  });
+  return c.json(
+    { ...error, message: error.message },
+    HTTP_STATUS_CODES.INTERNAL_SERVER_ERROR
+  );
+});
+```
+
+## Zod Validation Errors
+
+### What is ZodError?
+
+`ZodError` is thrown when request validation fails (invalid body, params, or query).
+
+### Handling
+
+The error handler prettifies Zod errors and returns a 400 Bad Request:
+
+```typescript
+if (error instanceof ZodError) {
+  const errorMessage = prettifyError(error);
+  logger.error(`ZodError with requestId: ${reqId}`, {
+    error: errorMessage,
+  });
+  return c.json({ message: errorMessage }, HTTP_STATUS_CODES.BAD_REQUEST);
+}
+```
+
+### Example Response
+
+```json
+{
+  "message": "Validation error: Expected string, received number at \"email\""
+}
+```
+
+## HTTP Errors (ky)
+
+### What is HTTPError?
+
+`HTTPError` from the `ky` HTTP client is thrown when external API requests fail.
+
+### Handling
+
+The error handler extracts the response body and returns a 400 Bad Request:
+
+```typescript
+if (error instanceof HTTPError) {
+  const errors = await error.response.json();
+  const response = { message: error.message, error: errors };
+  logger.error(`HTTPError with requestId: ${reqId}`, response);
+  return c.json(response, HTTP_STATUS_CODES.BAD_REQUEST);
+}
+```
+
+### Example Response
+
+```json
+{
+  "message": "Request failed with status code 404",
+  "error": {
+    "code": "NOT_FOUND",
+    "detail": "Resource not found"
+  }
+}
+```
+
+## HTTP Exceptions (Hono)
+
+### What is HTTPException?
+
+`HTTPException` is Hono's built-in HTTP error class for throwing HTTP errors.
+
+### Usage
+
+```typescript
+import { HTTPException } from "hono/http-exception";
+
+app.get("/protected", async (c) => {
+  const user = c.get("user");
+  
+  if (!user) {
+    throw new HTTPException(401, { message: "Unauthorized" });
+  }
+  
+  return c.json({ user });
+});
+```
+
+### Handling
+
+The error handler returns the exception's response directly:
+
+```typescript
+if (error instanceof HTTPException) {
+  logger.error(`HTTPException with requestId: ${reqId}`, {
+    error: error.message,
+  });
+  return error.getResponse();
+}
+```
+
+## Unknown Errors
+
+All other errors are treated as internal server errors (500):
+
+```typescript
+logger.error(`UnknownError with requestId: ${reqId}`, {
+  error: error.message,
+});
+return c.json(
+  { ...error, message: error.message },
+  HTTP_STATUS_CODES.INTERNAL_SERVER_ERROR
+);
+```
+
+### Example Response
+
+```json
+{
+  "name": "Error",
+  "message": "Database connection failed",
+  "stack": "Error: Database connection failed\n    at ..."
+}
+```
+
+## Request ID Tracking
+
+Every request gets a unique ID via the `requestId` middleware (`src/app.ts:52`):
+
+```typescript
+import { requestId } from "hono/request-id";
+
+app.use("*", requestId());
+```
+
+### Accessing Request ID
+
+In route handlers:
+
+```typescript
+app.get("/example", async (c) => {
+  const reqId = c.get("requestId");
+  logger.info(`Processing request ${reqId}`);
+  
+  return c.json({ requestId: reqId });
+});
+```
+
+In error handlers:
+
+```typescript
+app.onError(async (error, c) => {
+  const reqId = c.get("requestId");
+  logger.error(`Error with requestId: ${reqId}`, { error });
+  // ...
+});
+```
+
+### Response Headers
+
+The request ID is included in response headers:
+
+```http
+X-Request-Id: abc123-def456-ghi789
+```
+
+Clients can use this ID for debugging and support requests.
+
+## 404 Not Found Handler
+
+Handles routes that don't exist (`src/app.ts:105`):
+
+```typescript
+app.notFound((c) => {
+  logger.warn("404 Not found");
+  return c.text("404 Not found", HTTP_STATUS_CODES.NOT_FOUND);
+});
+```
+
+## HTTP Status Codes
+
+The app uses constants for HTTP status codes (defined in `src/core/constants/http.ts`):
+
+```typescript
+export const HTTP_STATUS_CODES = {
+  OK: 200,
+  BAD_REQUEST: 400,
+  UNAUTHORIZED: 401,
+  NOT_FOUND: 404,
+  INTERNAL_SERVER_ERROR: 500,
+  // ...
+} as const;
+```
+
+## Custom Error Responses
+
+### Creating Custom Errors
+
+```typescript
+import { HTTPException } from "hono/http-exception";
+
+class ValidationError extends HTTPException {
+  constructor(message: string, details?: unknown) {
+    super(400, { 
+      message,
+      cause: details 
+    });
+  }
+}
+
+app.post("/users", async (c) => {
+  const body = await c.req.json();
+  
+  if (!body.email) {
+    throw new ValidationError("Email is required", {
+      field: "email",
+      code: "REQUIRED",
+    });
+  }
+  
+  // ...
+});
+```
+
+### Structured Error Response
+
+```typescript
+app.onError(async (error, c) => {
+  const reqId = c.get("requestId");
+  
+  return c.json(
+    {
+      error: {
+        message: error.message,
+        requestId: reqId,
+        timestamp: new Date().toISOString(),
+        path: c.req.path,
+      },
+    },
+    error instanceof HTTPException ? error.status : 500
+  );
+});
+```
+
+## Logging
+
+All errors are logged with context using the custom logger (`src/core/utils/logger.ts`):
+
+```typescript
+import { logger } from "@/core/utils/logger.js";
+
+logger.error(`ZodError with requestId: ${reqId}`, {
+  error: errorMessage,
+});
+```
+
+Logs include:
+- Error type
+- Request ID
+- Error message/details
+- Timestamp
+- Stack trace (for unknown errors)
+
+## Timeout Handling
+
+Requests that exceed 15 seconds are automatically terminated (`src/app.ts:24`):
+
+```typescript
+import { timeout } from "hono/timeout";
+
+const TIMEOUT = 15_000; // 15 seconds
+app.use("*", timeout(TIMEOUT));
+```
+
+Timeout errors are caught by the global error handler.

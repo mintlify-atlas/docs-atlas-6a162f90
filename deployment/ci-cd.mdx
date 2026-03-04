@@ -1,0 +1,412 @@
+---
+title: 'CI/CD Pipeline'
+description: 'Continuous Integration and Deployment with GitHub Actions'
+icon: 'github'
+---
+
+## Overview
+
+The BE Monorepo uses GitHub Actions for automated testing, linting, and releases. The CI/CD pipeline ensures code quality and streamlines the deployment process.
+
+## Workflow Files
+
+The project includes two main GitHub Actions workflows located in `.github/workflows/`:
+
+1. **CI Workflow** (`ci.yml`) - Continuous integration for pull requests and main branch
+2. **Release Workflow** (`release.yml`) - Automated releases on version tags
+
+## CI Workflow
+
+### Trigger Events
+
+The CI workflow runs on:
+
+```yaml
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+```
+
+### Jobs
+
+#### 1. Sherif - Monorepo Linting
+
+Validates monorepo structure and dependencies:
+
+```yaml
+sherif:
+  name: Lint monorepos
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v6.0.2
+    - uses: QuiiBz/sherif@v1.10.0
+```
+
+**What Sherif checks:**
+- Dependency version consistency across workspace packages
+- Package.json fields compliance
+- Workspace structure validation
+
+#### 2. Lint and Type Check
+
+Runs code quality checks:
+
+```yaml
+lint-typecheck:
+  runs-on: ubuntu-latest
+  steps:
+    - name: Checkout branch
+      uses: actions/checkout@v6.0.2
+
+    - name: Install bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+
+    - name: Install deps
+      run: bun ci
+
+    - name: Lint
+      run: bun lint-typecheck
+```
+
+**What runs:**
+- `bun ci` - Installs dependencies (CI-optimized)
+- `bun lint-typecheck` - Runs parallel linting and TypeScript type checking
+
+The `lint-typecheck` script executes:
+```json
+"lint-typecheck": "bun run --parallel lint hono:typecheck"
+```
+
+Which runs:
+- **Lint**: `ultracite check` (code style and quality)
+- **TypeCheck**: `tsc --noEmit` (TypeScript type validation)
+
+## Release Workflow
+
+### Trigger Events
+
+The release workflow runs when version tags are pushed:
+
+```yaml
+on:
+  push:
+    tags:
+      - "v*"
+```
+
+### Permissions
+
+```yaml
+permissions:
+  contents: write
+```
+
+Allows the workflow to create releases and update repository contents.
+
+### Release Job
+
+Automatically generates changelog and GitHub releases:
+
+```yaml
+release:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v6.0.2
+      with:
+        fetch-depth: 0  # Fetch all history for changelog
+
+    - uses: actions/setup-node@v4.2.0
+      with:
+        node-version: lts/*
+
+    - run: npx changelogithub
+      env:
+        GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+```
+
+**What happens:**
+1. Checks out entire git history
+2. Sets up Node.js LTS
+3. Runs `changelogithub` to generate release notes from commits
+4. Creates a GitHub release automatically
+
+## Creating Releases
+
+### Using Changesets
+
+The project uses Changesets for version management:
+
+```bash
+# Add a changeset
+bun cs
+
+# Version packages
+bun cs:v
+
+# Commit the version changes
+git add .
+git commit -m "chore: version packages"
+
+# Create and push a tag
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+<Steps>
+  <Step title="Create Changeset">
+    Run `bun cs` and describe your changes
+  </Step>
+  
+  <Step title="Version Bump">
+    Run `bun cs:v` to update version numbers
+  </Step>
+  
+  <Step title="Commit Changes">
+    Commit the version updates
+  </Step>
+  
+  <Step title="Create Tag">
+    Create a git tag matching `v*` pattern
+  </Step>
+  
+  <Step title="Push Tag">
+    Push the tag to trigger release workflow
+  </Step>
+</Steps>
+
+## Environment Variables
+
+### Built-in Environment Variables
+
+```yaml
+env:
+  FORCE_COLOR: "1"  # Enables colored output in CI logs
+```
+
+### Required Secrets
+
+The workflows use GitHub's built-in secrets:
+
+- `GITHUB_TOKEN` - Automatically provided by GitHub Actions
+
+<Info>
+No additional secrets are required for the current CI/CD setup.
+</Info>
+
+## Local CI Simulation
+
+Run the same checks locally before pushing:
+
+```bash
+# Install dependencies
+bun ci
+
+# Run linting
+bun lint
+
+# Run type checking
+bun typecheck
+
+# Run both in parallel (same as CI)
+bun lint-typecheck
+
+# Check monorepo structure
+bunx sherif
+```
+
+## CI/CD Best Practices
+
+### Pre-commit Hooks
+
+The project uses Husky for pre-commit hooks:
+
+```json
+"prepare": "husky"
+```
+
+This ensures code quality checks run before commits reach CI.
+
+### Dependency Management
+
+**Update dependencies safely:**
+
+```bash
+# Check for updates
+bun bump:deps
+
+# Install and test
+bun install
+bun lint-typecheck
+```
+
+### Caching Strategy
+
+The workflows use implicit caching:
+- Bun setup action caches dependencies automatically
+- Checkout action uses shallow clones for speed
+
+## Extending CI/CD
+
+### Adding Test Jobs
+
+To add automated testing:
+
+```yaml
+test:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v6.0.2
+    - uses: oven-sh/setup-bun@v2
+      with:
+        bun-version: latest
+    - run: bun ci
+    - run: bun hono:test
+```
+
+### Adding Build Validation
+
+Validate production builds in CI:
+
+```yaml
+build:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v6.0.2
+    - uses: oven-sh/setup-bun@v2
+    - run: bun ci
+    - run: bun run node:build:prod
+```
+
+### Database Integration
+
+For testing with a real database:
+
+```yaml
+test:
+  runs-on: ubuntu-latest
+  services:
+    postgres:
+      image: postgres:17
+      env:
+        POSTGRES_DB: test_db
+        POSTGRES_USER: test_user
+        POSTGRES_PASSWORD: test_pass
+      ports:
+        - 5432:5432
+      options: >-
+        --health-cmd pg_isready
+        --health-interval 10s
+        --health-timeout 5s
+        --health-retries 5
+```
+
+## Deployment Automation
+
+### Example Deployment Workflow
+
+Add a deployment step after successful CI:
+
+```yaml
+deploy:
+  needs: [sherif, lint-typecheck]
+  runs-on: ubuntu-latest
+  if: github.ref == 'refs/heads/main'
+  steps:
+    - uses: actions/checkout@v6.0.2
+    - uses: oven-sh/setup-bun@v2
+    - run: bun ci
+    - run: bun run node:build:prod
+    - name: Deploy to production
+      run: |
+        # Add your deployment commands here
+        # e.g., deploy to cloud provider, SSH to server, etc.
+```
+
+### Environment-specific Deployments
+
+Use GitHub Environments for staged deployments:
+
+```yaml
+deploy-staging:
+  environment:
+    name: staging
+    url: https://staging.example.com
+  steps:
+    # Deployment steps
+
+deploy-production:
+  environment:
+    name: production
+    url: https://example.com
+  needs: deploy-staging
+  steps:
+    # Production deployment steps
+```
+
+## Monitoring CI/CD
+
+### Viewing Workflow Runs
+
+Monitor CI/CD in your GitHub repository:
+
+1. Navigate to the **Actions** tab
+2. View workflow runs and their status
+3. Click on a run to see detailed logs
+4. Review failed jobs and error messages
+
+### Workflow Status Badge
+
+Add a status badge to your README:
+
+```markdown
+![CI](https://github.com/your-org/be-monorepo/workflows/CI/badge.svg)
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**Sherif fails:**
+- Check dependency versions across packages
+- Ensure all packages use the same version of shared dependencies
+- Review workspace configuration
+
+**Lint/TypeCheck fails:**
+- Run locally: `bun lint-typecheck`
+- Fix errors before pushing
+- Ensure all files are included in TypeScript config
+
+**Release workflow not triggering:**
+- Verify tag format matches `v*` pattern
+- Check repository permissions
+- Ensure tag is pushed: `git push origin v1.0.0`
+
+### Debug Mode
+
+Enable step debugging in workflows:
+
+```yaml
+- name: Debug
+  run: |
+    echo "Node version: $(node --version)"
+    echo "Bun version: $(bun --version)"
+    echo "Working directory: $(pwd)"
+    ls -la
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Setup" icon="docker" href="/deployment/docker">
+    Configure containers for deployment
+  </Card>
+  <Card title="Production Build" icon="hammer" href="/deployment/production-build">
+    Optimize builds for production
+  </Card>
+</CardGroup>

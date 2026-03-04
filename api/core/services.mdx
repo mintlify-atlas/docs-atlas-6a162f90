@@ -1,0 +1,371 @@
+---
+title: 'Services'
+description: 'Service modules for HTTP client management'
+icon: 'server'
+---
+
+## Overview
+
+The Core Package provides service modules for managing HTTP clients and other shared functionality. The HTTP service is built on top of [ky](https://github.com/sindresorhus/ky), a modern HTTP client with automatic retries and JSON parsing.
+
+## HTTP Service
+
+The `Http` class provides a wrapper around the ky HTTP client with configuration management.
+
+### Import
+
+```typescript
+import { Http } from '@workspace/core/services/http';
+import type { Options } from 'ky';
+```
+
+### Constructor
+
+Creates a new HTTP service instance with the provided configuration.
+
+<ParamField path="config" type="Options" required>
+  Ky configuration options for the HTTP client
+</ParamField>
+
+```typescript
+const http = new Http({
+  prefixUrl: 'https://api.example.com',
+  timeout: 30000,
+  retry: 2,
+  hooks: {
+    beforeRequest: [
+      request => {
+        request.headers.set('X-Custom-Header', 'value');
+      }
+    ]
+  },
+  credentials: 'include'
+});
+```
+
+### Configuration Options
+
+Common ky configuration options:
+
+<ParamField path="prefixUrl" type="string">
+  Base URL to prepend to all requests
+</ParamField>
+
+<ParamField path="timeout" type="number" default="10000">
+  Request timeout in milliseconds
+</ParamField>
+
+<ParamField path="retry" type="number | { limit: number; methods: string[]; statusCodes: number[] }" default="2">
+  Number of retry attempts or detailed retry configuration
+</ParamField>
+
+<ParamField path="credentials" type="'omit' | 'same-origin' | 'include'">
+  Whether to send cookies with requests
+</ParamField>
+
+<ParamField path="headers" type="Record<string, string>">
+  Default headers to include with all requests
+</ParamField>
+
+<ParamField path="hooks" type="Hooks">
+  Lifecycle hooks for request/response interception
+</ParamField>
+
+<ParamField path="throwHttpErrors" type="boolean" default="true">
+  Whether to throw errors for non-2xx responses
+</ParamField>
+
+### Properties
+
+#### instance
+
+The underlying ky instance.
+
+```typescript
+const http = new Http({ prefixUrl: 'https://api.example.com' });
+
+// Access the ky instance directly
+const response = await http.instance.get('users');
+const data = await response.json();
+```
+
+## Methods
+
+### updateConfig
+
+Extends the current configuration with new options. The new configuration is merged with the existing configuration.
+
+<ParamField path="newConfig" type="Options" required>
+  New configuration options to merge
+</ParamField>
+
+<ResponseField name="void" type="void">
+  This method doesn't return a value
+</ResponseField>
+
+```typescript
+const http = new Http({
+  prefixUrl: 'https://api.example.com',
+  timeout: 10000
+});
+
+// Add authentication header to existing config
+http.updateConfig({
+  headers: {
+    'Authorization': `Bearer ${token}`
+  }
+});
+
+// Previous settings (prefixUrl, timeout) are preserved
+```
+
+### resetConfig
+
+Completely replaces the HTTP client configuration with a new one. All previous settings are discarded.
+
+<ParamField path="newConfig" type="Options" required>
+  New configuration options to replace the current configuration
+</ParamField>
+
+<ResponseField name="void" type="void">
+  This method doesn't return a value
+</ResponseField>
+
+```typescript
+const http = new Http({
+  prefixUrl: 'https://api.example.com',
+  timeout: 10000,
+  headers: { 'X-Custom': 'value' }
+});
+
+// Completely reset configuration
+http.resetConfig({
+  prefixUrl: 'https://api-v2.example.com',
+  timeout: 20000
+  // Previous headers are removed
+});
+```
+
+## Usage Patterns
+
+### Basic Setup
+
+Create a shared HTTP client for your application:
+
+```typescript
+import { Http } from '@workspace/core/services/http';
+
+const http = new Http({
+  prefixUrl: import.meta.env.VITE_API_URL,
+  timeout: 30000,
+  credentials: 'include',
+  retry: {
+    limit: 3,
+    methods: ['get', 'put'],
+    statusCodes: [408, 413, 429, 500, 502, 503, 504]
+  }
+});
+
+export default http;
+```
+
+### Making Requests
+
+Use the ky instance to make HTTP requests:
+
+```typescript
+// GET request
+const response = await http.instance.get('users');
+const users = await response.json();
+
+// POST request with JSON body
+const response = await http.instance.post('users', {
+  json: {
+    name: 'John Doe',
+    email: 'john@example.com'
+  }
+});
+const newUser = await response.json();
+
+// PUT request
+const response = await http.instance.put('users/123', {
+  json: { name: 'Jane Doe' }
+});
+
+// DELETE request
+await http.instance.delete('users/123');
+
+// Request with query parameters
+const response = await http.instance.get('users', {
+  searchParams: {
+    page: 1,
+    limit: 10,
+    sort: 'name'
+  }
+});
+```
+
+### Authentication Integration
+
+Dynamically update configuration for authentication:
+
+```typescript
+import { Http } from '@workspace/core/services/http';
+
+const http = new Http({
+  prefixUrl: 'https://api.example.com'
+});
+
+// After user logs in
+function setAuthToken(token: string) {
+  http.updateConfig({
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+}
+
+// After user logs out
+function clearAuthToken() {
+  http.resetConfig({
+    prefixUrl: 'https://api.example.com'
+  });
+}
+```
+
+### Request Hooks
+
+Add hooks for request/response interception:
+
+```typescript
+const http = new Http({
+  prefixUrl: 'https://api.example.com',
+  hooks: {
+    beforeRequest: [
+      request => {
+        // Add timestamp to all requests
+        request.headers.set('X-Request-Time', Date.now().toString());
+        console.log(`Requesting: ${request.url}`);
+      }
+    ],
+    afterResponse: [
+      (request, options, response) => {
+        // Log successful responses
+        console.log(`Response: ${response.status}`);
+        return response;
+      }
+    ],
+    beforeError: [
+      error => {
+        // Custom error handling
+        const { response } = error;
+        if (response && response.status === 401) {
+          console.error('Unauthorized - redirecting to login');
+          window.location.href = '/login';
+        }
+        return error;
+      }
+    ]
+  }
+});
+```
+
+### Error Handling
+
+Handle HTTP errors gracefully:
+
+```typescript
+import { HTTPError, TimeoutError } from 'ky';
+
+try {
+  const response = await http.instance.get('users');
+  const users = await response.json();
+} catch (error) {
+  if (error instanceof HTTPError) {
+    const status = error.response.status;
+    const body = await error.response.json();
+    
+    if (status === 404) {
+      console.error('Resource not found');
+    } else if (status === 429) {
+      console.error('Rate limited');
+    } else {
+      console.error('HTTP error:', status, body);
+    }
+  } else if (error instanceof TimeoutError) {
+    console.error('Request timed out');
+  } else {
+    console.error('Unknown error:', error);
+  }
+}
+```
+
+### Upload Files
+
+Send multipart form data:
+
+```typescript
+const formData = new FormData();
+formData.append('file', file);
+formData.append('name', 'document.pdf');
+
+const response = await http.instance.post('uploads', {
+  body: formData
+});
+```
+
+### Download Files
+
+Download binary data:
+
+```typescript
+const response = await http.instance.get('files/document.pdf');
+const blob = await response.blob();
+
+// Create download link
+const url = URL.createObjectURL(blob);
+const a = document.createElement('a');
+a.href = url;
+a.download = 'document.pdf';
+a.click();
+URL.revokeObjectURL(url);
+```
+
+### AbortController
+
+Cancel requests:
+
+```typescript
+const controller = new AbortController();
+
+try {
+  const response = await http.instance.get('slow-endpoint', {
+    signal: controller.signal
+  });
+} catch (error) {
+  if (error.name === 'AbortError') {
+    console.log('Request was cancelled');
+  }
+}
+
+// Cancel the request
+controller.abort();
+```
+
+## Integration with API Clients
+
+The HTTP service is designed to work with API repository functions:
+
+```typescript
+import { Http } from '@workspace/core/services/http';
+import { authRepositories } from '@workspace/core/apis/auth';
+
+const http = new Http({
+  prefixUrl: 'https://api.example.com'
+});
+
+const auth = authRepositories(http);
+
+// Use API methods
+const { json } = await auth.getSession();
+```

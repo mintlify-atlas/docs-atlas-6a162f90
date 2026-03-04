@@ -1,0 +1,379 @@
+---
+title: Session Handling
+description: Manage authentication sessions with Better Auth
+---
+
+# Session Handling
+
+Better Auth provides robust session management with database-backed storage, automatic expiration, and secure token handling.
+
+## Session Schema
+
+Sessions are stored in the database with the following schema:
+
+```typescript
+export const sessionTable = pgTable("session", {
+  id: text().primaryKey(),
+  expiresAt: timestamp().notNull(),
+  token: text().notNull().unique(),
+  ipAddress: text(),
+  userAgent: text(),
+  userId: text()
+    .notNull()
+    .references(() => userTable.id, { onDelete: "cascade" }),
+  ...timestamps, // createdAt, updatedAt, deletedAt
+});
+
+export const selectSessionTableSchema = createSelectSchema(sessionTable);
+export type SessionTable = z.infer<typeof selectSessionTableSchema>;
+```
+
+### Session Fields
+
+- **id**: Unique session identifier
+- **expiresAt**: Session expiration timestamp
+- **token**: Unique session token for authentication
+- **ipAddress**: Client IP address (for security tracking)
+- **userAgent**: Client user agent (browser/device info)
+- **userId**: Reference to the user (cascade delete)
+- **timestamps**: Created/updated/deleted timestamps
+
+## Session Middleware
+
+The authentication context middleware extracts session data from requests:
+
+```typescript
+import type { MiddlewareHandler } from "hono";
+import { auth } from "@/auth/libs/index.js";
+
+/**
+ * Middleware to save the session and user in context
+ * Sets user and session to null if not authenticated
+ */
+export function authContextMiddleware(): MiddlewareHandler {
+  return async (c, next) => {
+    // Get the session from the request
+    const session = await auth.api.getSession({ 
+      headers: c.req.raw.headers 
+    });
+
+    // Set the user and session in the context
+    c.set("user", session ? session.user : null);
+    c.set("session", session ? session.session : null);
+
+    return next();
+  };
+}
+```
+
+### Usage
+
+Apply the middleware to protected routes:
+
+```typescript
+import { authContextMiddleware } from "@/routes/middlewares/auth.js";
+
+// Apply to specific routes
+app.get("/api/protected", authContextMiddleware(), async (c) => {
+  const user = c.get("user");
+  const session = c.get("session");
+  
+  if (!user || !session) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  
+  return c.json({ 
+    message: "Protected data",
+    user,
+    sessionId: session.id 
+  });
+});
+
+// Apply to route groups
+const protectedRoutes = new Hono();
+protectedRoutes.use("*", authContextMiddleware());
+
+protectedRoutes.get("/profile", async (c) => {
+  const user = c.get("user");
+  return c.json({ user });
+});
+```
+
+## Authentication Context
+
+The middleware adds authentication data to the Hono context:
+
+```typescript
+// Type definitions in src/core/types/hono.ts
+import type { auth } from "@/auth/libs/index.js";
+
+interface AuthVariables {
+  session: typeof auth.$Infer.Session.session | null;
+  user: typeof auth.$Infer.Session.user | null;
+}
+
+export type Variables = RequestIdVariables & 
+                        TimingVariables & 
+                        AuthVariables;
+```
+
+### Accessing Context
+
+```typescript
+app.get("/api/example", authContextMiddleware(), async (c) => {
+  // Get user from context
+  const user = c.get("user");
+  
+  // Get session from context
+  const session = c.get("session");
+  
+  // Both are null if not authenticated
+  if (!user) {
+    return c.json({ error: "Not authenticated" }, 401);
+  }
+  
+  // Access user properties
+  console.log(user.id, user.email, user.name);
+  
+  // Access session properties
+  if (session) {
+    console.log(session.id, session.expiresAt, session.ipAddress);
+  }
+  
+  return c.json({ user });
+});
+```
+
+## Session Creation
+
+Sessions are automatically created by Better Auth during:
+
+1. **User Registration**: Creates session after successful sign-up
+2. **User Login**: Creates new session after authentication
+3. **Session Refresh**: Creates new session when refreshing
+
+```typescript
+// Automatic session creation on login
+const response = await fetch('http://localhost:3333/api/auth/sign-in/email', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    email: 'user@example.com',
+    password: 'password'
+  })
+});
+
+const { user, session } = await response.json();
+// session.token is used for subsequent requests
+```
+
+## Session Storage
+
+Better Auth stores session tokens in HTTP-only cookies by default:
+
+```typescript
+// Cookies are automatically set by Better Auth
+// Format: better-auth.session_token=<token>
+// Properties:
+// - httpOnly: true
+// - secure: true (in production)
+// - sameSite: 'lax'
+// - path: '/'
+```
+
+### Manual Token Handling
+
+For API clients (mobile apps, SPAs), store tokens securely:
+
+```typescript
+// Client-side: Store token after login
+const { session } = await loginResponse.json();
+localStorage.setItem('session_token', session.token);
+
+// Include token in requests
+fetch('/api/protected', {
+  headers: {
+    'Authorization': `Bearer ${session.token}`
+  }
+});
+```
+
+## Session Expiry
+
+Sessions automatically expire based on the `expiresAt` timestamp:
+
+```typescript
+// Default: 30 days from creation
+// Configured in Better Auth settings
+export const auth = betterAuth({
+  session: {
+    expiresIn: 60 * 60 * 24 * 30, // 30 days in seconds
+    updateAge: 60 * 60 * 24 * 7,  // Refresh every 7 days
+  },
+  // ... other config
+});
+```
+
+### Checking Expiration
+
+```typescript
+app.get("/api/session-status", authContextMiddleware(), async (c) => {
+  const session = c.get("session");
+  
+  if (!session) {
+    return c.json({ authenticated: false });
+  }
+  
+  const now = new Date();
+  const expiresAt = new Date(session.expiresAt);
+  const isExpired = now > expiresAt;
+  
+  return c.json({
+    authenticated: !isExpired,
+    expiresAt: session.expiresAt,
+    timeRemaining: expiresAt.getTime() - now.getTime()
+  });
+});
+```
+
+## Session Revocation
+
+Revoke sessions through Better Auth's API:
+
+```typescript
+// Logout (revokes current session)
+app.post("/api/logout", async (c) => {
+  await fetch('http://localhost:3333/api/auth/sign-out', {
+    method: 'POST',
+    headers: c.req.raw.headers // Forwards session cookie
+  });
+  
+  return c.json({ success: true });
+});
+
+// Revoke all user sessions
+import { db } from "@/db/index.js";
+import { sessionTable } from "@/db/schema.js";
+import { eq } from "drizzle-orm";
+
+app.post("/api/logout-all", authContextMiddleware(), async (c) => {
+  const user = c.get("user");
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  
+  await db
+    .delete(sessionTable)
+    .where(eq(sessionTable.userId, user.id));
+  
+  return c.json({ success: true });
+});
+```
+
+## Session Security
+
+### IP Address Tracking
+
+Better Auth tracks IP addresses for security:
+
+```typescript
+// Configured in auth setup
+advanced: {
+  ipAddress: {
+    ipAddressHeaders: Object.values(ipAddressHeaders),
+  },
+}
+
+// Sessions store the originating IP
+// Useful for detecting suspicious activity
+```
+
+### User Agent Tracking
+
+User agents help identify devices:
+
+```typescript
+app.get("/api/sessions", authContextMiddleware(), async (c) => {
+  const user = c.get("user");
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  
+  const sessions = await db
+    .select()
+    .from(sessionTable)
+    .where(eq(sessionTable.userId, user.id));
+  
+  return c.json({
+    sessions: sessions.map(s => ({
+      id: s.id,
+      createdAt: s.createdAt,
+      ipAddress: s.ipAddress,
+      userAgent: s.userAgent,
+      current: s.id === c.get("session")?.id
+    }))
+  });
+});
+```
+
+## Auth Routes Handler
+
+Better Auth handles all authentication routes:
+
+```typescript
+import type { OpenAPIHono } from "@hono/zod-openapi";
+import { auth } from "@/auth/libs/index.js";
+
+export function authRoutes(
+  app: OpenAPIHono<{ Variables: Variables }>
+) {
+  // Better Auth handler for all auth endpoints
+  app.on(["POST", "GET"], "/api/auth/**", (c) => 
+    auth.handler(c.req.raw)
+  );
+}
+```
+
+This registers all Better Auth endpoints:
+- `/api/auth/sign-in/email`
+- `/api/auth/sign-up/email`
+- `/api/auth/sign-out`
+- `/api/auth/session`
+- `/api/auth/verify-email`
+- And more...
+
+## Rate Limiting
+
+Sessions are protected by rate limiting:
+
+```typescript
+rateLimit: {
+  window: 15,        // 15 second window
+  max: 150,          // Max 150 requests (10 req/s)
+  storage: "database",
+  modelName: "rate_limit"
+}
+```
+
+Rate limits are tracked in the database:
+
+```typescript
+export const rateLimitTable = pgTable("rate_limit", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  key: text("key").notNull().unique(),
+  count: integer("count").default(0).notNull(),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});
+```
+
+## Best Practices
+
+1. **Always use middleware**: Apply `authContextMiddleware()` to protected routes
+2. **Check authentication**: Verify `user` and `session` are not null
+3. **Handle expiration**: Check session expiry and refresh when needed
+4. **Secure tokens**: Use HTTP-only cookies or secure storage
+5. **Track sessions**: Monitor IP addresses and user agents for security
+6. **Revoke on logout**: Always revoke sessions on user logout
+7. **Cascade deletes**: User deletion automatically removes sessions
+
+## Next Steps
+
+- [User Management](/auth/user-management) - User registration and login
+- [Authentication Setup](/auth/setup) - Configure Better Auth
+- [Better Auth Sessions](https://better-auth.com/docs/concepts/sessions) - Official docs

@@ -1,0 +1,208 @@
+---
+title: 'Docker Setup'
+description: 'Container orchestration and Docker Compose configuration'
+icon: 'docker'
+---
+
+## Overview
+
+The BE Monorepo uses Docker Compose to manage development infrastructure services including PostgreSQL, Redis, and OpenTelemetry observability stack.
+
+## Docker Compose Configuration
+
+The Docker setup is located in the `docker/` directory and includes three core services:
+
+### Services
+
+#### PostgreSQL Database
+
+PostgreSQL 17 is used as the primary database:
+
+```yaml
+postgres_db:
+  image: postgres:17
+  environment:
+    POSTGRES_DB: postgres_db
+    POSTGRES_USER: postgres_db
+    POSTGRES_PASSWORD: postgres_db
+  ports:
+    - "5432:5432"
+  volumes:
+    - postgres_db_data:/var/lib/postgresql/data
+  restart: unless-stopped
+```
+
+**Connection String:**
+```
+postgres://postgres_db:postgres_db@localhost:5432/postgres_db
+```
+
+#### Redis Cache
+
+Redis is used for caching and session management:
+
+```yaml
+redis_cache:
+  image: redis:latest
+  ports:
+    - "6379:6379"
+  volumes:
+    - redis_cache_data:/data
+  restart: unless-stopped
+```
+
+#### Grafana LGTM Stack (Observability)
+
+Integrated Loki, Grafana, Tempo, and Mimir (LGTM) stack for observability:
+
+```yaml
+otel_lgtm:
+  image: docker.io/grafana/otel-lgtm:latest
+  ports:
+    - "3111:3000" # Grafana UI
+    - "4317:4317" # OTLP gRPC receiver
+    - "4318:4318" # OTLP http receiver
+  volumes:
+    - ./container/grafana:/data/grafana
+    - ./container/prometheus:/data/prometheus
+    - ./container/loki:/data/loki
+  environment:
+    - GF_PATHS_DATA=/data/grafana
+  env_file:
+    - ./.env
+```
+
+**Access Grafana:** http://localhost:3111
+
+### Data Persistence
+
+Docker volumes ensure data persistence across container restarts:
+
+```yaml
+volumes:
+  postgres_db_data:
+  redis_cache_data:
+```
+
+## Starting Services
+
+### Using npm/bun Scripts
+
+The recommended way to start all services:
+
+```bash
+bun compose:up
+```
+
+This command is defined in the root `package.json`:
+
+```json
+"compose:up": "docker compose -f ./docker/docker-compose.yml up --build"
+```
+
+### Manual Docker Compose
+
+You can also run Docker Compose manually:
+
+```bash
+# Start all services
+docker compose -f ./docker/docker-compose.yml up
+
+# Start in detached mode
+docker compose -f ./docker/docker-compose.yml up -d
+
+# Rebuild and start
+docker compose -f ./docker/docker-compose.yml up --build
+
+# Stop all services
+docker compose -f ./docker/docker-compose.yml down
+
+# Stop and remove volumes
+docker compose -f ./docker/docker-compose.yml down -v
+```
+
+## Environment Configuration
+
+Create a `.env` file in the `docker/` directory for the observability stack. See `.env.example` for reference.
+
+For the Hono application, configure the database connection in `apps/hono/.env.dev` or `apps/hono/.env.prod`:
+
+```env
+DATABASE_URL="postgres://postgres_db:postgres_db@localhost:5432/postgres_db"
+```
+
+## Service Health Checks
+
+Verify services are running:
+
+```bash
+# Check running containers
+docker compose -f ./docker/docker-compose.yml ps
+
+# View logs
+docker compose -f ./docker/docker-compose.yml logs
+
+# Follow logs for specific service
+docker compose -f ./docker/docker-compose.yml logs -f postgres_db
+```
+
+## Port Mapping
+
+| Service | Container Port | Host Port | Purpose |
+|---------|---------------|-----------|----------|
+| PostgreSQL | 5432 | 5432 | Database connection |
+| Redis | 6379 | 6379 | Cache connection |
+| Grafana | 3000 | 3111 | Observability UI |
+| OTLP gRPC | 4317 | 4317 | OpenTelemetry gRPC |
+| OTLP HTTP | 4318 | 4318 | OpenTelemetry HTTP |
+
+## Troubleshooting
+
+### Port Conflicts
+
+If ports are already in use, modify the port mappings in `docker-compose.yml`:
+
+```yaml
+ports:
+  - "5433:5432"  # Use different host port
+```
+
+### Volume Permissions
+
+Ensure the container directories have proper permissions:
+
+```bash
+mkdir -p docker/container/{grafana,prometheus,loki}
+chmod -R 777 docker/container/
+```
+
+### Reset Database
+
+To completely reset the database:
+
+```bash
+docker compose -f ./docker/docker-compose.yml down -v
+docker compose -f ./docker/docker-compose.yml up
+```
+
+## Production Considerations
+
+<Warning>
+The current Docker setup is designed for development. For production:
+- Use secure passwords and credentials
+- Configure proper networking and security groups
+- Set up automated backups for PostgreSQL
+- Use managed services for Redis and databases
+- Configure proper resource limits
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Production Build" icon="hammer" href="/deployment/production-build">
+    Learn about building the application for production
+  </Card>
+  <Card title="CI/CD" icon="github" href="/deployment/ci-cd">
+    Set up continuous integration and deployment
+  </Card>
+</CardGroup>

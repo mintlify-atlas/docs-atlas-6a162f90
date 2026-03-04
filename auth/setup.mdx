@@ -1,0 +1,194 @@
+---
+title: Authentication Setup
+description: Configure Better Auth for your Hono application
+---
+
+# Authentication Setup
+
+The BE Monorepo uses [Better Auth](https://better-auth.com) for authentication, providing a secure and flexible authentication system with database-backed sessions.
+
+## Installation
+
+Better Auth is already configured in the project. The main dependencies are:
+
+```json
+{
+  "better-auth": "1.4.18",
+  "drizzle-orm": "0.45.1",
+  "drizzle-zod": "0.8.3"
+}
+```
+
+## Configuration
+
+The authentication system is configured in `src/auth/libs/index.ts`:
+
+```typescript
+import { betterAuth } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { openAPI } from "better-auth/plugins";
+import { ENV } from "@/core/constants/env.js";
+import { ipAddressHeaders } from "@/core/utils/net.js";
+import { db } from "@/db/index.js";
+import * as schema from "@/db/schema.js";
+
+export const auth = betterAuth({
+  appName: ENV.APP_TITLE,
+  secret: ENV.BETTER_AUTH_SECRET,
+  baseURL: ENV.APP_URL,
+  database: drizzleAdapter(db, {
+    provider: "pg",
+    schema: {
+      user: schema.userTable,
+      session: schema.sessionTable,
+      account: schema.accountTable,
+      verification: schema.verificationTable,
+      rate_limit: schema.rateLimitTable,
+    },
+  }),
+  trustedOrigins: [ENV.APP_URL],
+  emailAndPassword: { enabled: true },
+  rateLimit: {
+    window: 15, // 15 seconds
+    max: 150, // 10 req/s
+    storage: "database",
+    modelName: "rate_limit",
+  },
+  plugins: [
+    openAPI({
+      path: "/docs", // at /api/auth/docs
+      theme: "bluePlanet",
+    }),
+  ],
+  advanced: {
+    ipAddress: {
+      ipAddressHeaders: Object.values(ipAddressHeaders),
+    },
+  },
+  telemetry: {
+    enabled: false,
+  },
+});
+```
+
+## Environment Variables
+
+Configure the following environment variables in your `.env` file:
+
+```bash
+# APP
+APP_TITLE="Hono API"
+APP_URL=http://localhost:3333
+
+# DATABASE
+DATABASE_URL="postgres://user:pass@localhost:5432/db_name"
+
+# BETTER AUTH
+BETTER_AUTH_SECRET=your-secret-here
+```
+
+### Required Variables
+
+- `APP_TITLE`: The application name displayed in auth flows
+- `APP_URL`: The base URL of your application
+- `DATABASE_URL`: PostgreSQL connection string
+- `BETTER_AUTH_SECRET`: Secret key for signing tokens (generate with `openssl rand -base64 32`)
+
+## Database Schema Generation
+
+Better Auth requires specific database tables. Generate the auth schema using:
+
+```bash
+npm run auth:gen
+```
+
+This command runs:
+
+```bash
+bunx @better-auth/cli generate \
+  --config ./src/auth/libs/index.ts \
+  --output ./src/db/auth-schema.ts \
+  --yes
+```
+
+After generating the schema, create a migration:
+
+```bash
+npm run db:gen
+npm run db:push
+```
+
+## Configuration Options
+
+### Email and Password
+
+Enabled by default for traditional email/password authentication:
+
+```typescript
+emailAndPassword: { enabled: true }
+```
+
+### Rate Limiting
+
+Protects authentication endpoints from abuse:
+
+```typescript
+rateLimit: {
+  window: 15,        // Time window in seconds
+  max: 150,          // Max requests per window (10 req/s)
+  storage: "database", // Store rate limits in database
+  modelName: "rate_limit"
+}
+```
+
+**Note**: Rate limiting only applies to client-initiated requests. Server-side requests using `auth.api` are not rate-limited.
+
+### OpenAPI Documentation
+
+Better Auth includes OpenAPI documentation:
+
+```typescript
+plugins: [
+  openAPI({
+    path: "/docs",
+    theme: "bluePlanet",
+  }),
+]
+```
+
+Access the auth API documentation at `/api/auth/docs`.
+
+### IP Address Tracking
+
+Track user sessions by IP address:
+
+```typescript
+advanced: {
+  ipAddress: {
+    ipAddressHeaders: Object.values(ipAddressHeaders),
+  },
+}
+```
+
+## Database Adapter
+
+The Drizzle adapter connects Better Auth to your PostgreSQL database:
+
+```typescript
+database: drizzleAdapter(db, {
+  provider: "pg",
+  schema: {
+    user: schema.userTable,
+    session: schema.sessionTable,
+    account: schema.accountTable,
+    verification: schema.verificationTable,
+    rate_limit: schema.rateLimitTable,
+  },
+})
+```
+
+## Next Steps
+
+- [User Management](/auth/user-management) - Learn about user registration and login
+- [Session Handling](/auth/session-handling) - Understand session management
+- [Better Auth Docs](https://better-auth.com/docs) - Official documentation

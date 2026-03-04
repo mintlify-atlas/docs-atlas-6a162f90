@@ -1,0 +1,521 @@
+---
+title: Authentication
+description: Authentication endpoints, session management, and auth middleware powered by Better Auth
+---
+
+## Overview
+
+The Hono app uses [Better Auth](https://better-auth.com) for authentication and session management. All authentication endpoints are mounted at `/api/auth/**` and handle user registration, login, session management, and OAuth providers.
+
+## Better Auth Configuration
+
+**File:** `src/auth/libs/index.ts:12-56`
+
+### Core Configuration
+
+```typescript
+export const auth = betterAuth({
+  appName: ENV.APP_TITLE,
+  secret: ENV.BETTER_AUTH_SECRET,
+  baseURL: ENV.APP_URL,
+  database: drizzleAdapter(db, {
+    provider: "pg",
+    schema: {
+      user: schema.userTable,
+      session: schema.sessionTable,
+      account: schema.accountTable,
+      verification: schema.verificationTable,
+      rate_limit: schema.rateLimitTable,
+    },
+  }),
+  trustedOrigins: [ENV.APP_URL],
+  emailAndPassword: { enabled: true },
+});
+```
+
+**Environment Variables:**
+- `ENV.APP_TITLE` - Application name displayed to users
+- `ENV.BETTER_AUTH_SECRET` - Secret key for token signing
+- `ENV.APP_URL` - Base URL for authentication callbacks
+
+**Database Adapter:**
+- Uses Drizzle ORM with PostgreSQL
+- Maps Better Auth tables to app schema
+- See [Database Reference](/api/hono/database) for table schemas
+
+**Authentication Methods:**
+- Email and password authentication enabled
+- OAuth providers can be configured
+
+## Rate Limiting
+
+**File:** `src/auth/libs/index.ts:34-40`
+
+```typescript
+rateLimit: {
+  window: RATE_LIMIT_WINDOW_SECONDS,  // 15 seconds
+  max: RATE_LIMIT_MAX_REQUESTS,        // 150 requests
+  storage: "database",
+  modelName: "rate_limit",
+}
+```
+
+**Configuration:**
+
+```typescript
+const RATE_LIMIT_WINDOW_SECONDS = 15;
+const RATE_LIMIT_MAX_REQUESTS = 10 * RATE_LIMIT_WINDOW_SECONDS; // 150 requests / 15 seconds = 10 req/s
+```
+
+**Behavior:**
+- Server-side requests via `auth.api` are NOT rate limited
+- Only client-initiated requests are rate limited
+- Uses database storage for distributed rate limiting
+- Disabled by default in development mode
+
+**Documentation:** [Better Auth Rate Limiting](https://better-auth.com/docs/concepts/rate-limit)
+
+## IP Address Detection
+
+**File:** `src/auth/libs/index.ts:47-51`
+
+```typescript
+advanced: {
+  ipAddress: {
+    ipAddressHeaders: Object.values(ipAddressHeaders),
+  },
+}
+```
+
+Better Auth checks multiple headers to detect the client's real IP address:
+- Standard proxy headers (X-Forwarded-For, X-Real-IP)
+- CloudFlare headers (CF-Connecting-IP)
+- Custom load balancer headers
+
+Defined in `src/core/utils/net.ts`
+
+## OpenAPI Documentation
+
+**File:** `src/auth/libs/index.ts:41-46`
+
+```typescript
+plugins: [
+  openAPI({
+    path: "/docs",
+    theme: "bluePlanet",
+  }),
+]
+```
+
+**Endpoint:** `/api/auth/docs`
+
+**Features:**
+- Interactive API documentation
+- Blue Planet theme
+- All Better Auth endpoints documented
+- Try-it-out functionality for testing
+
+## Authentication Endpoints
+
+**File:** `src/routes/auth.ts:10-11`
+
+All Better Auth endpoints are handled by the Better Auth request handler:
+
+```typescript
+app.on(["POST", "GET"], "/api/auth/**", (c) => auth.handler(c.req.raw));
+```
+
+**Base Path:** `/api/auth/**`
+
+**Supported Methods:** `GET`, `POST`
+
+### Common Endpoints
+
+Better Auth provides the following endpoints (non-exhaustive list):
+
+#### POST /api/auth/sign-up/email
+
+Register a new user with email and password.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "SecurePassword123!",
+  "name": "John Doe"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "user": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "name": "John Doe",
+    "emailVerified": false
+  },
+  "session": {
+    "id": "session_123",
+    "token": "...",
+    "expiresAt": "2024-01-01T00:00:00.000Z"
+  }
+}
+```
+
+#### POST /api/auth/sign-in/email
+
+Sign in with email and password.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com",
+  "password": "SecurePassword123!"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "user": { /* user object */ },
+  "session": { /* session object */ }
+}
+```
+
+#### POST /api/auth/sign-out
+
+Sign out and invalidate the current session.
+
+**Headers:**
+```
+Authorization: Bearer <session_token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "success": true
+}
+```
+
+#### GET /api/auth/session
+
+Get the current user's session.
+
+**Headers:**
+```
+Authorization: Bearer <session_token>
+```
+
+**Response:** `200 OK`
+```json
+{
+  "user": { /* user object */ },
+  "session": { /* session object */ }
+}
+```
+
+#### POST /api/auth/verify-email
+
+Verify email address with verification token.
+
+**Request Body:**
+```json
+{
+  "token": "verification_token_here"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "success": true
+}
+```
+
+#### POST /api/auth/forget-password
+
+Request a password reset email.
+
+**Request Body:**
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "success": true
+}
+```
+
+#### POST /api/auth/reset-password
+
+Reset password with reset token.
+
+**Request Body:**
+```json
+{
+  "token": "reset_token_here",
+  "password": "NewSecurePassword123!"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "success": true
+}
+```
+
+#### GET /api/auth/open-api/generate-schema
+
+Generate OpenAPI schema for Better Auth endpoints.
+
+**Response:** `200 OK`
+```json
+{
+  "openapi": "3.1.0",
+  "info": { /* ... */ },
+  "paths": { /* ... */ }
+}
+```
+
+**Usage:** Used by `/llms-auth.txt` endpoint to generate LLM-friendly documentation
+
+**File:** `src/routes/llms-docs.ts:97-100`
+
+### OAuth Endpoints
+
+Better Auth also provides OAuth endpoints for each configured provider:
+
+- `GET /api/auth/sign-in/<provider>` - Initiate OAuth flow
+- `GET /api/auth/callback/<provider>` - OAuth callback handler
+
+**Example Providers:** Google, GitHub, Twitter, Facebook, etc.
+
+**Documentation:** [Better Auth OAuth](https://better-auth.com/docs/authentication/oauth)
+
+## Server-Side API
+
+Better Auth provides a server-side API for use in backend code:
+
+### auth.api.getSession
+
+**File:** `src/routes/middlewares/auth.ts:10`
+
+Retrieve the current session from request headers.
+
+```typescript
+const session = await auth.api.getSession({ 
+  headers: c.req.raw.headers 
+});
+```
+
+**Returns:**
+```typescript
+{
+  user: User | null;
+  session: Session | null;
+}
+```
+
+**Usage in Middleware:**
+
+**File:** `src/routes/middlewares/auth.ts:7-18`
+
+```typescript
+export function authContextMiddleware(): MiddlewareHandler {
+  return async (c, next) => {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    
+    c.set('user', session ? session.user : null);
+    c.set('session', session ? session.session : null);
+    
+    return next();
+  };
+}
+```
+
+### auth.api.generateOpenAPISchema
+
+**File:** `src/routes/llms-docs.ts:97`
+
+Generate OpenAPI schema for all Better Auth endpoints.
+
+```typescript
+const openapiSchema = await auth.api.generateOpenAPISchema();
+```
+
+**Returns:** OpenAPI 3.1 specification object
+
+**Usage:** Generating documentation for LLMs and API references
+
+### auth.handler
+
+**File:** `src/routes/auth.ts:11`
+
+Main request handler for all Better Auth endpoints.
+
+```typescript
+app.on(["POST", "GET"], "/api/auth/**", (c) => auth.handler(c.req.raw));
+```
+
+**Parameters:**
+- `request` - Standard Web API Request object
+
+**Returns:** Standard Web API Response object
+
+## Authentication Middleware
+
+See [Middlewares Reference](/api/hono/middlewares) for detailed middleware documentation.
+
+### authContextMiddleware
+
+**File:** `src/routes/middlewares/auth.ts:7-18`
+
+Globally applied middleware that adds user and session to request context.
+
+```typescript
+import { authContextMiddleware } from '@/routes/middlewares/auth';
+
+app.use('*', authContextMiddleware());
+```
+
+**Context Variables:**
+- `c.get('user')` - Current user or `null`
+- `c.get('session')` - Current session or `null`
+
+**Example Usage in Route:**
+
+```typescript
+app.get('/protected', async (c) => {
+  const user = c.get('user');
+  const session = c.get('session');
+  
+  if (!user || !session) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+  
+  return c.json({ message: 'Hello ' + user.name });
+});
+```
+
+## Session Management
+
+Sessions are managed automatically by Better Auth:
+
+**Session Storage:**
+- Sessions stored in PostgreSQL `session` table
+- See [Database Schema](/api/hono/database#session)
+
+**Session Fields:**
+- `id` - Unique session identifier
+- `token` - Session token for authentication
+- `expiresAt` - Session expiration timestamp
+- `userId` - Reference to user
+- `ipAddress` - Client IP address
+- `userAgent` - Client user agent
+
+**Session Cookie:**
+- Automatically managed by Better Auth
+- HttpOnly cookie for security
+- Secure flag in production
+- SameSite attribute for CSRF protection
+
+**Session Expiration:**
+- Configurable session lifetime
+- Automatic cleanup of expired sessions
+- Refresh token support for long-lived sessions
+
+## Security Features
+
+### CSRF Protection
+
+**File:** `src/app.ts:60-62`
+
+```typescript
+csrf({
+  origin: [ENV.APP_URL],
+})
+```
+
+Protects against Cross-Site Request Forgery attacks.
+
+### Secure Headers
+
+**File:** `src/app.ts:63`
+
+```typescript
+secureHeaders()
+```
+
+Sets security-related HTTP headers:
+- `X-Content-Type-Options`
+- `X-Frame-Options`
+- `X-XSS-Protection`
+- `Strict-Transport-Security`
+
+### CORS Configuration
+
+**File:** `src/app.ts:45-51`
+
+```typescript
+cors({
+  origin: [ENV.APP_URL],
+  allowMethods: ["GET", "POST", "OPTIONS"],
+  allowHeaders: ["Content-Type", "Authorization"],
+  exposeHeaders: ["Content-Length"],
+  credentials: true,
+})
+```
+
+Controls cross-origin resource sharing.
+
+### Password Hashing
+
+Better Auth automatically:
+- Hashes passwords using bcrypt or argon2
+- Validates password strength
+- Prevents password reuse
+- Implements secure password reset flows
+
+## Telemetry
+
+**File:** `src/auth/libs/index.ts:53-55`
+
+```typescript
+telemetry: {
+  enabled: false,
+}
+```
+
+Better Auth telemetry is disabled for privacy.
+
+## Error Handling
+
+Authentication errors are handled by the global error handler in `src/app.ts:72-103`.
+
+**Common Error Codes:**
+- `401 Unauthorized` - Invalid or missing credentials
+- `403 Forbidden` - Valid credentials but insufficient permissions
+- `429 Too Many Requests` - Rate limit exceeded
+- `400 Bad Request` - Invalid request format
+
+**Error Response Format:**
+```json
+{
+  "message": "Error description",
+  "error": { /* error details */ }
+}
+```
+
+## Related Documentation
+
+- [Better Auth Documentation](https://better-auth.com)
+- [Database Schema](/api/hono/database)
+- [Middlewares](/api/hono/middlewares)
+- [Routes](/api/hono/routes)

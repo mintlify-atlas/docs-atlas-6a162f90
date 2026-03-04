@@ -1,0 +1,481 @@
+---
+title: Environment Variables
+description: Managing environment variables across development and production environments
+---
+
+## Overview
+
+The BE Monorepo uses a structured approach to environment variable management, ensuring type-safety and clear separation between development and production configurations. Each application maintains its own environment files while following consistent patterns.
+
+## Environment Files Structure
+
+Environment variables are managed using multiple `.env` files:
+
+```
+apps/hono/
+├── .env.dev          # Development environment
+├── .env.prod         # Production environment
+└── .env.example      # Template with all variables
+```
+
+<Warning>
+  Never commit actual `.env.dev` or `.env.prod` files to version control. Only commit `.env.example` files.
+</Warning>
+
+## Hono App Environment Variables
+
+### Required Variables
+
+The following variables are **required** for the Hono app to run:
+
+```bash .env.example
+# APP
+APP_TITLE="Hono API"
+APP_URL=http://localhost:3333
+
+# DATABASE
+DATABASE_URL="postgres://user:pass@localhost:5432/db_name"
+
+# BETTER AUTH
+BETTER_AUTH_SECRET=OVgl...
+
+# OTEL
+OTEL_LOG_LEVEL="INFO"
+```
+
+### Variable Descriptions
+
+<AccordionGroup>
+  <Accordion title="Application Variables">
+    **APP_TITLE**
+    - Type: `string`
+    - Description: Display name for the API
+    - Example: `"Hono API"`
+    - Required: Yes
+
+    **APP_URL**
+    - Type: `string`
+    - Description: Base URL where the API is hosted
+    - Development: `http://localhost:3333`
+    - Production: Your deployed API URL
+    - Required: Yes
+  </Accordion>
+
+  <Accordion title="Database Variables">
+    **DATABASE_URL**
+    - Type: `string`
+    - Description: PostgreSQL connection string
+    - Format: `postgres://[user]:[password]@[host]:[port]/[database]`
+    - Example: `postgres://admin:secretpass@localhost:5432/hono_db`
+    - Required: Yes
+    - Used by: Drizzle ORM for database connections
+  </Accordion>
+
+  <Accordion title="Authentication Variables">
+    **BETTER_AUTH_SECRET**
+    - Type: `string`
+    - Description: Secret key for Better Auth JWT signing
+    - Minimum length: 32 characters
+    - Required: Yes
+    - Security: Must be cryptographically random
+    
+    Generate a secure secret:
+    ```bash
+    openssl rand -base64 32
+    ```
+  </Accordion>
+
+  <Accordion title="Observability Variables">
+    **OTEL_LOG_LEVEL**
+    - Type: `enum`
+    - Description: OpenTelemetry logging level
+    - Options: `"ALL"`, `"VERBOSE"`, `"DEBUG"`, `"INFO"`, `"WARN"`, `"ERROR"`, `"NONE"`
+    - Default: `"INFO"`
+    - Required: Yes
+    - Development: Use `"DEBUG"` for detailed logs
+    - Production: Use `"INFO"` or `"WARN"`
+  </Accordion>
+</AccordionGroup>
+
+## Type-Safe Environment Variables
+
+The Hono app uses [@t3-oss/env-core](https://env.t3.gg) for runtime validation and type-safety:
+
+```typescript apps/hono/src/core/constants/env.ts
+import { createEnv } from "@t3-oss/env-core";
+import { z } from "zod";
+
+export const ENV = createEnv({
+  server: {
+    APP_TITLE: z.string().min(1),
+    APP_URL: z.string().min(1),
+    DATABASE_URL: z.string().min(1),
+    BETTER_AUTH_SECRET: z.string().min(1),
+    OTEL_LOG_LEVEL: z.enum([
+      "ALL",
+      "VERBOSE",
+      "DEBUG",
+      "INFO",
+      "WARN",
+      "ERROR",
+      "NONE",
+    ]),
+  },
+  runtimeEnv: process.env,
+});
+```
+
+### Benefits
+
+1. **Type Safety**: Full TypeScript autocomplete and type checking
+2. **Runtime Validation**: Fails fast if required variables are missing
+3. **Schema Documentation**: Zod schema serves as documentation
+4. **Development Experience**: Immediate feedback on configuration errors
+
+### Usage in Code
+
+```typescript apps/hono/src/index.ts
+import { ENV } from "@/core/constants/env";
+
+const app = new Hono();
+
+// ✅ Type-safe access with autocomplete
+console.log(ENV.APP_TITLE);
+console.log(ENV.DATABASE_URL);
+
+// ❌ TypeScript error: Property doesn't exist
+console.log(ENV.NONEXISTENT_VAR);
+```
+
+<Tip>
+  The `ENV` object provides IntelliSense autocomplete, making it easy to discover available environment variables.
+</Tip>
+
+## Development vs Production
+
+### Development Environment
+
+Use `.env.dev` for local development:
+
+```bash .env.dev
+APP_TITLE="Hono API (Dev)"
+APP_URL=http://localhost:3333
+DATABASE_URL="postgres://admin:password@localhost:5432/hono_dev"
+BETTER_AUTH_SECRET=dev_secret_key_32_chars_minimum
+OTEL_LOG_LEVEL="DEBUG"
+```
+
+**Running in development:**
+
+```bash
+# Using Bun (recommended)
+bun run --env-file=.env.dev --hot src/bun.ts
+
+# Using Node.js
+dotenvx run --env-file=.env.dev -- tsx watch src/node.ts
+```
+
+### Production Environment
+
+Use `.env.prod` for production:
+
+```bash .env.prod
+APP_TITLE="Hono API"
+APP_URL=https://api.example.com
+DATABASE_URL="postgres://prod_user:secure_pass@db.example.com:5432/hono_prod"
+BETTER_AUTH_SECRET=prod_secret_key_32_chars_minimum_different_from_dev
+OTEL_LOG_LEVEL="INFO"
+```
+
+**Running in production:**
+
+```bash
+# Using Bun
+bun run --env-file=.env.prod src/bun.ts
+
+# Using Node.js
+dotenvx run --env-file=.env.prod -- node dist/node.js
+```
+
+<Note>
+  Production secrets should be stored securely using environment variable management tools provided by your hosting platform (Vercel, Railway, AWS Secrets Manager, etc.).
+</Note>
+
+## Package Scripts with Environment Files
+
+The `package.json` includes convenience scripts for different environments:
+
+```json apps/hono/package.json
+{
+  "scripts": {
+    // Development with Bun
+    "dev": "bun run --env-file=.env.dev --hot src/bun.ts",
+    "test": "bun test --env-file=.env.dev",
+    
+    // Production with Bun
+    "dev:prod": "bun run --env-file=.env.prod --hot src/bun.ts",
+    
+    // Development with Node.js
+    "node:dev": "dotenvx run --env-file=.env.dev -- tsx watch src/node.ts",
+    "node:build": "dotenvx run --env-file=.env.dev -- tsc -p .",
+    "node:start": "dotenvx run --env-file=.env.dev -- node ./dist/node.js",
+    
+    // Production with Node.js
+    "node:dev:prod": "dotenvx run --env-file=.env.prod -- tsx watch src/node.ts",
+    "node:build:prod": "dotenvx run --env-file=.env.prod -- tsc -p .",
+    "node:start:prod": "dotenvx run --env-file=.env.prod -- node ./dist/node.js",
+    
+    // Database operations
+    "db:push": "dotenvx run --env-file=.env.dev -- drizzle-kit push",
+    "db:studio": "dotenvx run --env-file=.env.dev -- drizzle-kit studio --port 3003"
+  }
+}
+```
+
+## Docker Environment Variables
+
+For Docker deployments, use the `docker/.env.example` file:
+
+```bash docker/.env.example
+ENABLE_LOGS_ALL=true
+```
+
+This controls Docker Compose logging behavior:
+
+```bash
+# Start services with environment file
+docker compose -f ./docker/docker-compose.yml --env-file ./docker/.env up
+```
+
+## CI/CD Environment Variables
+
+### GitHub Actions Setup
+
+The project uses GitHub Environments for CI/CD:
+
+1. Create two environments in your GitHub repository:
+   - `dev` environment
+   - `prod` environment
+
+2. Add environment secrets:
+   - Secret name: `HONO_ENV_FILE`
+   - Dev value: Contents of `.env.dev`
+   - Prod value: Contents of `.env.prod`
+
+### GitHub Actions Workflow
+
+```yaml .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    environment: dev
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+      
+      - name: Create .env.dev file
+        run: echo "${{ secrets.HONO_ENV_FILE }}" > apps/hono/.env.dev
+      
+      - name: Install dependencies
+        run: bun install
+      
+      - name: Run tests
+        run: bun hono:test
+```
+
+<Info>
+  The workflow references `secrets.HONO_ENV_FILE` which pulls the environment file content from GitHub Secrets.
+</Info>
+
+## Best Practices
+
+### 1. Environment File Management
+
+<CodeGroup>
+```bash ✅ DO: Use .env.example as template
+# .env.example - Commit this
+APP_TITLE="Hono API"
+APP_URL=http://localhost:3333
+DATABASE_URL="postgres://user:pass@localhost:5432/db_name"
+BETTER_AUTH_SECRET=your_secret_here
+OTEL_LOG_LEVEL="INFO"
+```
+
+```bash ❌ DON'T: Commit actual secrets
+# .env.dev - DO NOT COMMIT
+APP_TITLE="Hono API"
+APP_URL=http://localhost:3333
+DATABASE_URL="postgres://admin:MyRealPassword123@localhost:5432/hono_dev"
+BETTER_AUTH_SECRET=actual_secret_key_32_chars_here
+OTEL_LOG_LEVEL="DEBUG"
+```
+</CodeGroup>
+
+### 2. Secret Generation
+
+Generate cryptographically secure secrets:
+
+```bash
+# For BETTER_AUTH_SECRET (base64)
+openssl rand -base64 32
+
+# For hex secrets
+openssl rand -hex 32
+
+# Using Node.js
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+```
+
+### 3. Validation on Startup
+
+The app validates environment variables on startup and fails fast:
+
+```typescript
+// On startup, this throws if any required var is missing
+import { ENV } from "@/core/constants/env";
+
+// If we get here, all variables are valid ✅
+const app = new Hono();
+```
+
+### 4. Source of Truth
+
+<Steps>
+  <Step title="Local Environment Files">
+    `.env.dev` and `.env.prod` files in your local repository are the source of truth.
+  </Step>
+  
+  <Step title="Update CI/CD Secrets">
+    When changing local env files, update the corresponding GitHub Secrets:
+    ```bash
+    gh secret set HONO_ENV_FILE -e dev -f ./apps/hono/.env.dev
+    gh secret set HONO_ENV_FILE -e prod -f ./apps/hono/.env.prod
+    ```
+  </Step>
+  
+  <Step title="Update Deployment Platform">
+    Update environment variables in your deployment platform (Vercel, Railway, etc.) to match local files.
+  </Step>
+</Steps>
+
+### 5. Environment-Specific Behavior
+
+```typescript
+import { ENV } from "@/core/constants/env";
+
+const isDevelopment = ENV.OTEL_LOG_LEVEL === "DEBUG";
+
+if (isDevelopment) {
+  // Enable additional logging in development
+  app.use(logger());
+}
+
+// Different database connection pools
+const pool = new Pool({
+  connectionString: ENV.DATABASE_URL,
+  max: isDevelopment ? 5 : 20,
+});
+```
+
+## Adding New Environment Variables
+
+To add a new environment variable:
+
+<Steps>
+  <Step title="Update .env.example">
+    Add the variable with a descriptive placeholder:
+    ```bash
+    # New feature flag
+    ENABLE_NEW_FEATURE="false"
+    ```
+  </Step>
+
+  <Step title="Update env.ts schema">
+    Add validation to `apps/hono/src/core/constants/env.ts`:
+    ```typescript
+    export const ENV = createEnv({
+      server: {
+        // ... existing variables
+        ENABLE_NEW_FEATURE: z.enum(["true", "false"]).default("false"),
+      },
+      runtimeEnv: process.env,
+    });
+    ```
+  </Step>
+
+  <Step title="Update local env files">
+    Add to `.env.dev` and `.env.prod`:
+    ```bash
+    ENABLE_NEW_FEATURE="true"
+    ```
+  </Step>
+
+  <Step title="Update CI/CD secrets">
+    Push updated env files to GitHub Secrets:
+    ```bash
+    gh secret set HONO_ENV_FILE -e dev -f ./apps/hono/.env.dev
+    ```
+  </Step>
+
+  <Step title="Document the variable">
+    Add description in this documentation and in code comments.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Error: Missing required environment variable">
+    **Cause**: A required environment variable is not set or is empty.
+    
+    **Solution**:
+    1. Check if the variable exists in your `.env.dev` or `.env.prod` file
+    2. Ensure the file is being loaded with `--env-file` flag
+    3. Verify the variable name matches exactly (case-sensitive)
+    4. Check that the value is not empty
+  </Accordion>
+
+  <Accordion title="Environment file not loading">
+    **Cause**: The `--env-file` flag is missing or pointing to wrong file.
+    
+    **Solution**:
+    ```bash
+    # ✅ Correct
+    bun run --env-file=.env.dev src/bun.ts
+    
+    # ❌ Incorrect
+    bun run src/bun.ts
+    ```
+  </Accordion>
+
+  <Accordion title="Different behavior in CI vs local">
+    **Cause**: CI environment secrets don't match local env files.
+    
+    **Solution**:
+    1. Compare local `.env.dev` with GitHub Secret content
+    2. Update GitHub Secrets to match:
+       ```bash
+       gh secret set HONO_ENV_FILE -e dev -f ./apps/hono/.env.dev
+       ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="TypeScript Config" icon="code" href="/concepts/typescript-config">
+    Learn about the shared TypeScript configuration
+  </Card>
+  <Card title="Monorepo Architecture" icon="layer-group" href="/concepts/monorepo-architecture">
+    Understand the workspace structure
+  </Card>
+</CardGroup>

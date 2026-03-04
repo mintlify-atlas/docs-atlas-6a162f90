@@ -1,0 +1,513 @@
+---
+title: "@workspace/core"
+description: "Shared core module providing common utilities, types, services, and APIs for the monorepo"
+---
+
+# @workspace/core
+
+The `@workspace/core` package is the shared foundation for the BE Monorepo, providing common utilities, type definitions, HTTP services, and API clients used across all applications.
+
+## Overview
+
+This package is structured as a modular library with the following exports:
+
+- **apis/** - API client repositories with Zod validation
+- **assets/** - Shared static assets (images, etc.)
+- **constants/** - Common constants and type definitions
+- **services/** - Shared services (HTTP client)
+- **types/** - TypeScript type definitions
+- **utils/** - Utility functions for common operations
+
+## Installation
+
+The package is already available in the monorepo workspace:
+
+```json
+{
+  "dependencies": {
+    "@workspace/core": "workspace:*"
+  }
+}
+```
+
+## Package Structure
+
+### APIs
+
+API repositories provide typed HTTP clients with built-in Zod validation.
+
+#### Auth API
+
+Location: `packages/core/src/apis/auth.ts:1`
+
+```typescript
+import { Http } from "@workspace/core/services/http";
+import { authRepositories } from "@workspace/core/apis/auth";
+
+const http = new Http({
+  prefixUrl: "https://api.example.com",
+  timeout: 30000,
+});
+
+const auth = authRepositories(http);
+
+// Sign in with email
+const response = await auth.signInEmail({
+  json: {
+    email: "user@example.com",
+    password: "securepass123",
+    rememberMe: true,
+  },
+});
+
+console.log(response.json.token);
+```
+
+**Available Methods:**
+
+- `getSession()` - GET `/api/auth/get-session`
+- `signInEmail()` - POST `/api/auth/sign-in/email`
+- `signUpEmail()` - POST `/api/auth/sign-up/email`
+- `signOut()` - POST `/api/auth/sign-out`
+
+**Schemas:**
+
+All API methods include Zod schemas for request/response validation:
+
+```typescript
+import { 
+  authSignInEmailRequestSchema,
+  authSignInEmailResponseSchema,
+  type AuthSignInEmailRequestSchema,
+  type AuthSignInEmailResponseSchema,
+} from "@workspace/core/apis/auth";
+
+// Request validation
+const validatedRequest = authSignInEmailRequestSchema.parse({
+  email: "user@example.com",
+  password: "password123",
+  rememberMe: false,
+});
+```
+
+### Constants
+
+#### Core Constants
+
+Location: `packages/core/src/constants/core.ts:1`
+
+```typescript
+import { 
+  kilobyteMultiplier,
+  megabyteMultiplier,
+  gigabyteMultiplier,
+  indoTimezone,
+} from "@workspace/core/constants/core";
+
+// File size calculations
+const fileSizeInMB = fileSizeInBytes / megabyteMultiplier;
+
+// Timezone handling
+const timezone = indoTimezone[0]; // "WIB"
+```
+
+**Exported Constants:**
+
+- `kilobyteMultiplier` - 1024
+- `megabyteMultiplier` - 1,048,576
+- `gigabyteMultiplier` - 1,073,741,824
+- `indoTimezone` - `["WIB", "WITA", "WIT"]`
+
+#### HTTP Constants
+
+Location: `packages/core/src/constants/http.ts:1`
+
+```typescript
+import { 
+  HTTP_STATUS_CODES,
+  type StatusCode,
+  type ClientErrorStatusCode,
+} from "@workspace/core/constants/http";
+
+// Check status codes
+if (response.status === HTTP_STATUS_CODES.UNAUTHORIZED) {
+  // Handle unauthorized access
+}
+```
+
+**Status Code Types:**
+
+- `InfoStatusCode` - 1xx status codes
+- `SuccessStatusCode` - 2xx status codes
+- `RedirectStatusCode` - 3xx status codes
+- `ClientErrorStatusCode` - 4xx status codes
+- `ServerErrorStatusCode` - 5xx status codes
+- `StatusCode` - Union of all status code types
+
+### Services
+
+#### HTTP Service
+
+Location: `packages/core/src/services/http.ts:1`
+
+A wrapper around [ky](https://github.com/sindresorhus/ky) for making HTTP requests.
+
+```typescript
+import { Http } from "@workspace/core/services/http";
+
+// Create HTTP client
+const http = new Http({
+  prefixUrl: process.env.API_BASE_URL,
+  timeout: 30000,
+  headers: {
+    "Content-Type": "application/json",
+  },
+  hooks: {
+    beforeRequest: [
+      (request) => {
+        // Add auth token
+        const token = getAuthToken();
+        if (token) {
+          request.headers.set("Authorization", `Bearer ${token}`);
+        }
+      },
+    ],
+  },
+});
+
+// Make requests
+const response = await http.instance.get("users/me");
+const data = await response.json();
+
+// Update configuration
+http.updateConfig({
+  headers: {
+    "X-Custom-Header": "value",
+  },
+});
+
+// Reset configuration
+http.resetConfig({
+  prefixUrl: "https://new-api.example.com",
+});
+```
+
+**Methods:**
+
+- `constructor(config)` - Create new HTTP instance
+- `updateConfig(newConfig)` - Extend current configuration
+- `resetConfig(newConfig)` - Replace configuration entirely
+
+### Types
+
+Location: `packages/core/src/types/core.ts:1`
+
+```typescript
+import type { URLSearchParamsInit } from "@workspace/core/types/core";
+
+const params: URLSearchParamsInit = {
+  query: "search term",
+  page: "1",
+  filters: ["active", "verified"],
+};
+
+const searchParams = new URLSearchParams(params);
+```
+
+**Exported Types:**
+
+- `URLSearchParamsInit` - Flexible URL search params type
+
+### Utils
+
+#### Core Utilities
+
+Location: `packages/core/src/utils/core.ts:1`
+
+```typescript
+import {
+  clamp,
+  toCamelCase,
+  toSnakeCase,
+  objectToFormData,
+  deepReadObject,
+  indonesianPhoneNumberFormat,
+  removeLeadingZeros,
+  removeLeadingWhitespace,
+} from "@workspace/core/utils/core";
+
+// Clamp values
+const clamped = clamp({ value: 150, min: 0, max: 100 }); // 100
+
+// Case conversion
+const camelData = toCamelCase<{ firstName: string }>({
+  first_name: "John",
+});
+console.log(camelData.firstName); // "John"
+
+const snakeData = toSnakeCase({ firstName: "John" });
+console.log(snakeData.first_name); // "John"
+
+// FormData conversion
+const formData = objectToFormData({
+  name: "John Doe",
+  age: 30,
+  avatar: fileInput.files[0],
+  address: {
+    street: "123 Main St",
+    city: "Jakarta",
+  },
+  tags: ["developer", "designer"],
+});
+
+// Deep object reading
+const value = deepReadObject(
+  { user: { profile: { name: "John" } } },
+  "user.profile.name"
+); // "John"
+
+// Phone number formatting
+const formatted = indonesianPhoneNumberFormat("+628127363636");
+// "+62-812-7363-6365"
+
+// Remove leading zeros
+const cleaned = removeLeadingZeros("00123"); // "123"
+```
+
+**Available Functions:**
+
+- `clamp({ value, min, max })` - Clamp value to range
+- `toCamelCase<T>(obj)` - Convert object keys to camelCase
+- `toSnakeCase<T>(obj)` - Convert object keys to snake_case
+- `objectToFormData(obj, options?)` - Convert object to FormData
+- `objectToFormDataArrayWithComma(obj, options?)` - Convert with comma-separated arrays
+- `deepReadObject<T>(obj, path, defaultValue?)` - Safely read nested values
+- `indonesianPhoneNumberFormat(phoneNumber)` - Format Indonesian phone numbers
+- `removeLeadingZeros(value)` - Remove leading zeros from strings
+- `removeLeadingWhitespace(value?)` - Remove leading whitespace
+
+#### Date Utilities
+
+Location: `packages/core/src/utils/date.ts:1`
+
+```typescript
+import {
+  isValidTimezoneIANAString,
+  getLocalTimeZone,
+} from "@workspace/core/utils/date";
+
+// Validate timezone
+if (isValidTimezoneIANAString("Asia/Jakarta")) {
+  console.log("Valid timezone");
+}
+
+// Get local timezone
+const timezone = getLocalTimeZone(); // "Asia/Jakarta"
+```
+
+#### Invariant Utility
+
+Location: `packages/core/src/utils/invariant.ts:1`
+
+Assertion function for runtime validation with TypeScript type narrowing.
+
+```typescript
+import { invariant } from "@workspace/core/utils/invariant";
+
+function processUser(user: User | null) {
+  invariant(user, "Expected user to be defined");
+  // TypeScript now knows user is User (not null)
+  console.log(user.name);
+}
+
+// With dynamic message
+invariant(
+  items.length > 0,
+  () => `Expected items array to have elements, got ${items.length}`
+);
+```
+
+**Features:**
+
+- TypeScript assertion function for type narrowing
+- Messages stripped in production for smaller bundles
+- Supports string or function messages
+
+#### Logger Utility
+
+Location: `packages/core/src/utils/logger.ts:1`
+
+Colored console logger with timestamps and severity levels.
+
+```typescript
+import { logger } from "@workspace/core/utils/logger";
+
+logger.debug("Debug message", { detail: "value" });
+logger.log("Info message");
+logger.warn("Warning message", error);
+logger.error("Error occurred", error);
+```
+
+**Output Format:**
+
+```
+[14:30:45.123] INFO: Server started on port 3000
+[14:30:46.456] WARN: Deprecated API endpoint used
+[14:30:47.789] ERROR: Database connection failed
+```
+
+**Methods:**
+
+- `debug(message, ...attributes)` - Green debug logs
+- `log(message, ...attributes)` - Blue info logs
+- `warn(message, ...attributes)` - Yellow warning logs
+- `error(message, ...attributes)` - Red error logs
+
+### Assets
+
+Location: `packages/core/src/assets/`
+
+Shared static assets that can be imported across applications.
+
+```typescript
+import logoImage from "@workspace/core/assets/images/logo.png";
+```
+
+## Usage in Applications
+
+The Hono app demonstrates typical usage patterns:
+
+```typescript
+// apps/hono/src/node.ts:2
+import { logger } from "@workspace/core/utils/logger";
+import { PORT } from "@/core/constants/global.js";
+import { app } from "./app.js";
+
+const server = serve({ ...app, port: PORT }, (info) => {
+  logger.log(`Started development server: http://localhost:${info.port}`);
+});
+
+process.on("SIGTERM", () => {
+  server.close((err) => {
+    if (err) {
+      logger.error(err.message);
+      process.exit(1);
+    }
+    process.exit(0);
+  });
+});
+```
+
+## TypeScript Configuration
+
+Applications extend the shared TypeScript configuration and map paths to the core package:
+
+```json
+{
+  "extends": "@workspace/typescript-config/node.json",
+  "compilerOptions": {
+    "paths": {
+      "@workspace/core/*": ["../../packages/core/src/*"]
+    }
+  }
+}
+```
+
+## Dependencies
+
+The core package uses these external dependencies:
+
+- **ky** (1.14.3) - HTTP client
+- **radashi** (12.7.1) - Utility functions
+- **type-fest** (5.4.4) - TypeScript utility types
+- **zod** (4.3.6) - Schema validation
+
+## Best Practices
+
+### API Client Usage
+
+1. Create a single HTTP instance per API base URL
+2. Use repository pattern for organizing endpoints
+3. Leverage Zod schemas for type safety
+4. Handle errors with try-catch blocks
+
+```typescript
+import { Http } from "@workspace/core/services/http";
+import { authRepositories } from "@workspace/core/apis/auth";
+import { logger } from "@workspace/core/utils/logger";
+
+const http = new Http({
+  prefixUrl: process.env.API_BASE_URL,
+  timeout: 30000,
+});
+
+const auth = authRepositories(http);
+
+try {
+  const { json } = await auth.getSession();
+  if (json) {
+    logger.log("User authenticated", json.user);
+  }
+} catch (error) {
+  logger.error("Failed to get session", error);
+}
+```
+
+### Utility Functions
+
+1. Use `invariant` for runtime assertions and type narrowing
+2. Prefer `deepReadObject` over manual property access for nested data
+3. Use case conversion utilities for API data transformation
+4. Use the logger for consistent, colored output
+
+```typescript
+import { invariant } from "@workspace/core/utils/invariant";
+import { deepReadObject } from "@workspace/core/utils/core";
+import { logger } from "@workspace/core/utils/logger";
+
+function processApiResponse(data: unknown) {
+  invariant(data && typeof data === "object", "Invalid API response");
+  
+  const userId = deepReadObject<string>(data, "user.id", "anonymous");
+  logger.log("Processing user:", userId);
+}
+```
+
+### Type Safety
+
+1. Import both schema and type from APIs
+2. Use type assertions with Zod validation
+3. Leverage TypeScript's type narrowing with invariant
+
+```typescript
+import { 
+  authSignInEmailRequestSchema,
+  type AuthSignInEmailRequestSchema 
+} from "@workspace/core/apis/auth";
+
+// Validate at runtime
+const request = authSignInEmailRequestSchema.parse(userInput);
+// TypeScript knows the exact shape now
+```
+
+## Development
+
+### Adding New APIs
+
+1. Create a new file in `src/apis/`
+2. Define Zod schemas for entities, requests, and responses
+3. Create query keys for caching (if using React Query)
+4. Export a repository function that takes an Http instance
+
+### Adding New Utilities
+
+1. Add function to appropriate file in `src/utils/`
+2. Include JSDoc comments with examples
+3. Export from the module
+4. Add tests if needed
+
+## Related Documentation
+
+- [TypeScript Config](./typescript-config)
+- [Architecture Overview](../architecture)
+- [Hono App](../apps/hono)

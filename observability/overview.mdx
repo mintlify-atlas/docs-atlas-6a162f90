@@ -1,0 +1,154 @@
+---
+title: Observability Overview
+description: Comprehensive observability setup using OpenTelemetry and Grafana LGTM stack
+---
+
+## Overview
+
+The BE Monorepo implements a complete observability solution using OpenTelemetry for instrumentation and the Grafana LGTM stack for visualization and analysis.
+
+## Observability Stack
+
+### OpenTelemetry
+
+OpenTelemetry is used as the instrumentation layer, providing:
+- **Distributed Tracing**: Track requests across services
+- **Metrics Collection**: Monitor system performance
+- **Structured Logging**: Correlated logs with traces
+
+### Grafana LGTM Stack
+
+The LGTM stack provides a unified observability backend:
+
+- **Loki**: Log aggregation and querying
+- **Grafana**: Visualization and dashboards
+- **Tempo**: Distributed tracing backend
+- **Mimir/Prometheus**: Metrics storage and querying
+- **Pyroscope**: Continuous profiling
+
+## Architecture
+
+```
+┌─────────────────┐
+│   Hono App      │
+│  (Port 3333)    │
+└────────┬────────┘
+         │ OTLP Protocol
+         │ (HTTP/gRPC)
+         ▼
+┌─────────────────┐
+│  otel-lgtm      │
+│  - Port 4317    │ ◄── gRPC
+│  - Port 4318    │ ◄── HTTP
+└────────┬────────┘
+         │
+         ├──► Tempo (Traces)
+         ├──► Loki (Logs)
+         ├──► Prometheus (Metrics)
+         └──► Pyroscope (Profiles)
+         
+┌─────────────────┐
+│  Grafana UI     │
+│  localhost:3111 │
+└─────────────────┘
+```
+
+## Why Observability Matters
+
+### 1. Debugging Production Issues
+
+With distributed tracing, you can:
+- Track requests across multiple services
+- Identify bottlenecks and slow operations
+- Correlate logs with specific traces
+- Understand the full request lifecycle
+
+### 2. Performance Monitoring
+
+Metrics help you:
+- Monitor HTTP request durations
+- Track error rates by endpoint
+- Identify database query performance issues
+- Set up alerts for anomalies
+
+### 3. Proactive Problem Detection
+
+Structured logging enables:
+- Quick searching and filtering
+- Pattern recognition
+- Anomaly detection
+- Historical analysis
+
+### 4. Business Intelligence
+
+Observability data provides:
+- Usage patterns
+- User behavior insights
+- Feature adoption metrics
+- System capacity planning
+
+## Key Features
+
+### Automatic Instrumentation
+
+The application automatically instruments:
+- HTTP requests (incoming and outgoing)
+- Database queries (PostgreSQL)
+- DNS lookups
+- Network operations
+- Node.js runtime metrics
+
+### Context Propagation
+
+Trace context is automatically propagated:
+- Between HTTP requests
+- Across async operations
+- Through middleware chains
+- To external services
+
+### Resource Attributes
+
+All telemetry data includes:
+- Service name and version
+- Request ID for correlation
+- HTTP method and route
+- Status codes
+- Custom attributes
+
+## Getting Started
+
+To start using observability:
+
+1. **Start the LGTM stack**: See [Grafana Setup](/observability/grafana-setup)
+2. **Configure logging**: See [Logging](/observability/logging)
+3. **Add custom traces**: See [Tracing](/observability/tracing)
+4. **Create custom metrics**: See [Metrics](/observability/metrics)
+
+## Configuration
+
+The observability stack is configured through environment variables:
+
+```bash
+# OpenTelemetry Configuration
+OTEL_LOG_LEVEL=info
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+OTEL_SERVICE_NAME=be-monorepo
+OTEL_SERVICE_VERSION=1.0.0
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Logging" icon="file-lines" href="/observability/logging">
+    Learn about structured logging with OpenTelemetry
+  </Card>
+  <Card title="Tracing" icon="diagram-project" href="/observability/tracing">
+    Implement distributed tracing in your code
+  </Card>
+  <Card title="Metrics" icon="chart-line" href="/observability/metrics">
+    Collect and visualize custom metrics
+  </Card>
+  <Card title="Grafana Setup" icon="server" href="/observability/grafana-setup">
+    Set up and access Grafana dashboards
+  </Card>
+</CardGroup>

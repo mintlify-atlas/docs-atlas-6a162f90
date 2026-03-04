@@ -1,80 +1,316 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get your BE Monorepo backend running in under 5 minutes"
 ---
 
-## Get started in three steps
+## Prerequisites
 
-Get your documentation site running locally and make your first customization.
+Before you begin, ensure you have the following installed:
 
-### Step 1: Set up your local environment
+<CardGroup cols={2}>
+  <Card title="Bun" icon="package">
+    Version 1.3.10 or later
+    
+    ```bash
+    curl -fsSL https://bun.sh/install | bash
+    ```
+  </Card>
+
+  <Card title="Node.js" icon="node">
+    Version 24.14.0 or later (optional, if not using Bun runtime)
+    
+    ```bash
+    # Using nvm
+    nvm install 24.14.0
+    ```
+  </Card>
+
+  <Card title="PostgreSQL" icon="database">
+    Version 17 or later (can use Docker)
+    
+    ```bash
+    # Via Docker Compose (recommended)
+    bun compose:up
+    ```
+  </Card>
+
+  <Card title="Git" icon="git">
+    Any recent version
+    
+    ```bash
+    git --version
+    ```
+  </Card>
+</CardGroup>
+
+## Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the BE Monorepo template to your local machine:
+    
+    ```bash
+    git clone https://github.com/rifandani/be-monorepo.git
+    cd be-monorepo
+    ```
+    
+    <Note>
+      The repository uses exact versioning for all dependencies to ensure reproducible builds.
+    </Note>
+  </Step>
+
+  <Step title="Install dependencies">
+    Install all workspace dependencies using Bun:
+    
+    ```bash
+    bun install
+    ```
+    
+    This command installs dependencies for all apps and packages in the monorepo. The `bunfig.toml` configuration ensures exact versions and isolated linking.
+    
+    <Tip>
+      Installation typically takes 30-60 seconds depending on your internet connection.
+    </Tip>
+  </Step>
+
+  <Step title="Start infrastructure services">
+    Start PostgreSQL, Redis, and the Grafana observability stack using Docker Compose:
+    
+    ```bash
+    bun compose:up
+    ```
+    
+    This command starts:
+    - **PostgreSQL** on port 5432 (database)
+    - **Redis** on port 6379 (caching)
+    - **Grafana LGTM** on port 3111 (observability dashboard)
+    - **OTLP Receiver** on ports 4317/4318 (telemetry collection)
+    
+    <Warning>
+      Make sure ports 5432, 6379, 3111, 4317, and 4318 are not already in use.
+    </Warning>
+  </Step>
+
+  <Step title="Configure environment variables">
+    Copy the example environment file and configure your settings:
+    
+    ```bash
+    cp apps/hono/.env.example apps/hono/.env.dev
+    ```
+    
+    Update `apps/hono/.env.dev` with your configuration:
+    
+    ```bash apps/hono/.env.dev
+    # APP
+    APP_TITLE="Hono API"
+    APP_URL=http://localhost:3333
+    
+    # DATABASE
+    DATABASE_URL="postgres://postgres_db:postgres_db@localhost:5432/postgres_db"
+    
+    # BETTER AUTH
+    BETTER_AUTH_SECRET="your-secret-key-here"
+    
+    # OTEL
+    OTEL_LOG_LEVEL="INFO"
+    ```
+    
+    <Tip>
+      Generate a secure secret for `BETTER_AUTH_SECRET` using:
+      ```bash
+      openssl rand -base64 32
+      ```
+    </Tip>
+  </Step>
+
+  <Step title="Set up the database">
+    Push the database schema to create tables:
+    
+    ```bash
+    bun hono db:push
+    ```
+    
+    This command uses Drizzle Kit to synchronize your database schema with the definitions in `apps/hono/src/db/schema.ts`.
+    
+    Expected output:
+    ```
+    ✔ Schema pushed successfully
+    ✔ Created tables: users, sessions, accounts, verifications
+    ```
+    
+    <Note>
+      To view your database schema in a UI, run `bun hono db:studio` and visit `http://localhost:3003`.
+    </Note>
+  </Step>
+
+  <Step title="Start the development server">
+    Launch the Hono API server with hot reload:
+    
+    ```bash
+    bun hono dev
+    ```
+    
+    Expected output:
+    ```
+    $ bun run --env-file=.env.dev --hot --preload src/instrumentation.ts src/bun.ts
+    
+    🚀 Server is running on http://localhost:3333
+    📚 OpenAPI docs: http://localhost:3333/openapi/docs
+    ```
+    
+    Your API is now running! The `--hot` flag enables automatic reload when you save files.
+  </Step>
+</Steps>
+
+## Verify the installation
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+  <Accordion title="Test the API" icon="plug">
+    Make a test request to the health check endpoint:
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+    ```bash
+    curl http://localhost:3333/health
+    ```
+    
+    Expected response:
+    ```json
+    {
+      "status": "ok",
+      "timestamp": "2026-03-04T10:30:00.000Z"
+    }
+    ```
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+
+  <Accordion title="View API documentation" icon="book">
+    Visit the OpenAPI documentation in your browser:
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+    ```
+    http://localhost:3333/openapi/docs
+    ```
+    
+    You'll see an interactive API reference powered by Scalar. You can test endpoints directly from the documentation.
+  </Accordion>
+
+  <Accordion title="Check observability" icon="chart-line">
+    Access the Grafana dashboard to view traces and metrics:
+    
+    ```
+    http://localhost:3111
+    ```
+    
+    Login credentials:
+    - **Username**: admin
+    - **Password**: admin
+    
+    The dashboard shows request traces, performance metrics, logs, and profiling data collected via OpenTelemetry.
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
+## Available scripts
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
+The monorepo provides several utility scripts defined in `package.json`:
+
+<CodeGroup>
+
+```bash Root workspace
+# Development
+bun hono dev              # Start Hono with Bun runtime
+bun hono node:dev         # Start Hono with Node.js runtime
+
+# Database
+bun hono db:push          # Push schema changes to database
+bun hono db:gen           # Generate migration files
+bun hono db:migrate       # Run migrations
+bun hono db:studio        # Open Drizzle Studio UI
+
+# Authentication
+bun hono auth:gen         # Generate auth schema from Better Auth
+
+# Testing & Quality
+bun hono test             # Run tests
+bun hono typecheck        # Type check without emitting
+bun lint                  # Lint all workspaces
+bun lint:fix              # Fix linting issues
+bun format                # Format code with Biome
+
+# Infrastructure
+bun compose:up            # Start Docker services
+
+# Maintenance
+bun clean                 # Remove all build artifacts and node_modules
+bun bump:deps             # Check for dependency updates
+```
+
+```bash Build & Deploy
+# Node.js builds (for production deployment)
+bun hono node:build       # Build for development environment
+bun hono node:build:prod  # Build for production environment
+bun hono node:start       # Start built application (dev)
+bun hono node:start:prod  # Start built application (prod)
+
+# Version management
+bun cs                    # Create a new changeset
+bun cs:v                  # Version packages based on changesets
+```
+
+</CodeGroup>
+
+## Alternative: Node.js runtime
+
+If you prefer Node.js over Bun runtime, use these commands instead:
+
+<Steps>
+  <Step title="Start with Node.js">
+    ```bash
+    bun hono node:dev
+    ```
     
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    This uses `tsx` to run TypeScript with Node.js and watch for changes.
+  </Step>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+  <Step title="Build for production">
+    ```bash
+    bun hono node:build:prod
+    ```
+    
+    Compiles TypeScript to JavaScript in the `dist` folder.
+  </Step>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+  <Step title="Run production build">
+    ```bash
+    bun hono node:start:prod
+    ```
+    
+    Starts the compiled application with production environment variables.
+  </Step>
+</Steps>
 
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+<Note>
+  All database, testing, and utility commands work the same regardless of which runtime you choose.
+</Note>
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
+Now that your backend is running, explore the project structure and learn how to add new features:
 
 <CardGroup cols={2}>
+  <Card title="Project structure" icon="folder-tree" href="/project-structure">
+    Learn about the monorepo organization and file structure
+  </Card>
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+  <Card title="Database schema" icon="table" href="/database/schema-design">
+    Understand the database schema and how to modify it
+  </Card>
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+  <Card title="Authentication" icon="key" href="/auth/setup">
+    Configure authentication and user management
+  </Card>
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Add endpoints" icon="plus" href="/hono/api-routes">
+    Create new API routes with OpenAPI documentation
+  </Card>
 </CardGroup>
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+<Warning>
+  **Important**: Never commit `.env.dev` or `.env.prod` files to version control. The `.gitignore` already excludes these files.
+</Warning>

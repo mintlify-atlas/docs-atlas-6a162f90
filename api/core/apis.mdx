@@ -1,0 +1,347 @@
+---
+title: 'APIs'
+description: 'API client modules for the Core Package'
+icon: 'cloud'
+---
+
+## Overview
+
+The Core Package provides API client modules for interacting with backend services. All API clients are built on top of the HTTP service using the `ky` library for type-safe HTTP requests.
+
+## Authentication API
+
+The authentication API provides methods for user authentication operations including sign-up, sign-in, sign-out, and session management.
+
+### Import
+
+```typescript
+import { authRepositories } from '@workspace/core/apis/auth';
+import { Http } from '@workspace/core/services/http';
+```
+
+### Usage
+
+```typescript
+const http = new Http({
+  prefixUrl: 'https://api.example.com',
+  credentials: 'include'
+});
+
+const auth = authRepositories(http);
+```
+
+## Types & Schemas
+
+### AuthSessionSchema
+
+Represents an authenticated user session.
+
+<ParamField path="id" type="string" required>
+  Unique session identifier
+</ParamField>
+
+<ParamField path="expiresAt" type="string (date)" required>
+  ISO 8601 date string when the session expires
+</ParamField>
+
+<ParamField path="token" type="string" required>
+  Session authentication token
+</ParamField>
+
+<ParamField path="createdAt" type="string (date)" required>
+  ISO 8601 date string when the session was created
+</ParamField>
+
+<ParamField path="updatedAt" type="string (date)" required>
+  ISO 8601 date string when the session was last updated
+</ParamField>
+
+<ParamField path="ipAddress" type="string" required>
+  IP address associated with the session
+</ParamField>
+
+<ParamField path="userAgent" type="string" required>
+  User agent string from the client
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  ID of the user who owns this session
+</ParamField>
+
+### AuthUserSchema
+
+Represents a user account.
+
+<ParamField path="id" type="string" required>
+  Unique user identifier
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  User's display name
+</ParamField>
+
+<ParamField path="email" type="string (email)" required>
+  User's email address
+</ParamField>
+
+<ParamField path="emailVerified" type="boolean" required>
+  Whether the user's email has been verified
+</ParamField>
+
+<ParamField path="image" type="string | null" required>
+  URL to user's profile image, or null if not set
+</ParamField>
+
+<ParamField path="createdAt" type="string (date)" required>
+  ISO 8601 date string when the user was created
+</ParamField>
+
+<ParamField path="updatedAt" type="string (date)" required>
+  ISO 8601 date string when the user was last updated
+</ParamField>
+
+## API Methods
+
+### getSession
+
+Retrieves the current authenticated session.
+
+<ParamField path="options" type="Options" optional>
+  Ky request options for customizing the HTTP request
+</ParamField>
+
+<ResponseField name="session" type="AuthSessionSchema">
+  The current session object
+</ResponseField>
+
+<ResponseField name="user" type="AuthUserSchema">
+  The authenticated user object
+</ResponseField>
+
+<ResponseField name="headers" type="Headers">
+  Response headers from the HTTP request
+</ResponseField>
+
+**URL:** `GET /api/auth/get-session`
+
+**Access:** Public
+
+**Throws:** `HTTPError | TimeoutError | ZodError`
+
+```typescript
+const { json, headers } = await auth.getSession();
+
+if (json) {
+  console.log('User:', json.user.name);
+  console.log('Session expires:', json.session.expiresAt);
+} else {
+  console.log('Not authenticated');
+}
+```
+
+### signInEmail
+
+Sign in a user with email and password.
+
+<ParamField path="options.json" type="AuthSignInEmailRequestSchema" required>
+  Request body containing sign-in credentials
+</ParamField>
+
+<ParamField path="options.json.email" type="string (email)" required>
+  User's email address
+</ParamField>
+
+<ParamField path="options.json.password" type="string" required>
+  User's password (minimum 8 characters)
+</ParamField>
+
+<ParamField path="options.json.rememberMe" type="boolean" required>
+  Whether to create a persistent session
+</ParamField>
+
+<ParamField path="options.json.callbackURL" type="string" optional>
+  URL to redirect to after successful sign-in
+</ParamField>
+
+<ResponseField name="json.redirect" type="boolean">
+  Whether a redirect should be performed
+</ResponseField>
+
+<ResponseField name="json.token" type="string">
+  Authentication token for the session
+</ResponseField>
+
+<ResponseField name="json.url" type="string | null">
+  URL to redirect to, or null if no redirect
+</ResponseField>
+
+<ResponseField name="headers" type="Headers">
+  Response headers from the HTTP request
+</ResponseField>
+
+**URL:** `POST /api/auth/sign-in/email`
+
+**Access:** Public
+
+**Throws:** `HTTPError | TimeoutError | ZodError`
+
+```typescript
+const { json, headers } = await auth.signInEmail({
+  json: {
+    email: 'user@example.com',
+    password: 'SecurePassword123',
+    rememberMe: true,
+    callbackURL: '/dashboard'
+  }
+});
+
+if (json.redirect && json.url) {
+  window.location.href = json.url;
+}
+```
+
+### signUpEmail
+
+Register a new user with email and password.
+
+<ParamField path="options.json" type="AuthSignUpEmailRequestSchema" required>
+  Request body containing registration details
+</ParamField>
+
+<ParamField path="options.json.email" type="string (email)" required>
+  User's email address
+</ParamField>
+
+<ParamField path="options.json.password" type="string" required>
+  User's password (minimum 8 characters)
+</ParamField>
+
+<ParamField path="options.json.name" type="string" required>
+  User's display name (minimum 3 characters)
+</ParamField>
+
+<ParamField path="options.json.callbackURL" type="string" optional>
+  URL to redirect to after successful sign-up
+</ParamField>
+
+<ResponseField name="json.token" type="string | null">
+  Authentication token if registration is successful, null otherwise
+</ResponseField>
+
+<ResponseField name="headers" type="Headers">
+  Response headers from the HTTP request
+</ResponseField>
+
+**URL:** `POST /api/auth/sign-up/email`
+
+**Access:** Public
+
+**Throws:** `HTTPError | TimeoutError | ZodError`
+
+```typescript
+const { json, headers } = await auth.signUpEmail({
+  json: {
+    email: 'newuser@example.com',
+    password: 'SecurePassword123',
+    name: 'John Doe',
+    callbackURL: '/welcome'
+  }
+});
+
+if (json.token) {
+  console.log('Registration successful!');
+}
+```
+
+### signOut
+
+Sign out the current user and invalidate their session.
+
+<ParamField path="options" type="Options" optional>
+  Ky request options for customizing the HTTP request
+</ParamField>
+
+<ResponseField name="json.success" type="boolean">
+  Whether the sign-out was successful
+</ResponseField>
+
+<ResponseField name="headers" type="Headers">
+  Response headers from the HTTP request
+</ResponseField>
+
+**URL:** `POST /api/auth/sign-out`
+
+**Access:** Public
+
+**Throws:** `HTTPError | TimeoutError | ZodError`
+
+```typescript
+const { json, headers } = await auth.signOut();
+
+if (json.success) {
+  console.log('Successfully signed out');
+  window.location.href = '/login';
+}
+```
+
+## Query Keys
+
+For use with TanStack Query or similar data-fetching libraries:
+
+```typescript
+import { authKeys } from '@workspace/core/apis/auth';
+
+// All auth-related queries
+authKeys.all(); // ['auth']
+
+// Sign-up email query
+authKeys.signUpEmail({
+  email: 'user@example.com',
+  password: 'password',
+  name: 'John'
+}); // ['auth', 'signUpEmail', { email: '...', password: '...', name: '...' }]
+
+// Sign-in email query
+authKeys.signInEmail({
+  email: 'user@example.com',
+  password: 'password',
+  rememberMe: true
+}); // ['auth', 'signInEmail', { email: '...', password: '...', rememberMe: true }]
+
+// Sign-out query
+authKeys.signOut(); // ['auth', 'signOut']
+```
+
+## Constants
+
+```typescript
+const AUTH_PASSWORD_MIN_LENGTH = 8;
+const AUTH_NAME_MIN_LENGTH = 3;
+```
+
+## Error Handling
+
+All API methods can throw the following errors:
+
+- **HTTPError**: HTTP request failed (4xx or 5xx status codes)
+- **TimeoutError**: Request exceeded timeout limit
+- **ZodError**: Response validation failed
+
+```typescript
+import { HTTPError, TimeoutError } from 'ky';
+import { ZodError } from 'zod';
+
+try {
+  const { json } = await auth.signInEmail({
+    json: { email, password, rememberMe: true }
+  });
+} catch (error) {
+  if (error instanceof HTTPError) {
+    console.error('HTTP Error:', error.response.status);
+  } else if (error instanceof TimeoutError) {
+    console.error('Request timeout');
+  } else if (error instanceof ZodError) {
+    console.error('Invalid response:', error.errors);
+  }
+}
+```

@@ -1,0 +1,319 @@
+---
+title: Middlewares
+description: Authentication, rate limiting, logging, and observability middleware
+---
+
+The Hono app uses a comprehensive middleware stack for security, observability, and rate limiting.
+
+## Middleware Stack
+
+All middleware is configured in `src/app.ts:29`:
+
+```typescript
+import { httpInstrumentationMiddleware } from "@hono/otel";
+import { OpenAPIHono } from "@hono/zod-openapi";
+import { contextStorage } from "hono/context-storage";
+import { cors } from "hono/cors";
+import { csrf } from "hono/csrf";
+import { languageDetector } from "hono/language";
+import { logger as loggerMiddleware } from "hono/logger";
+import { prettyJSON } from "hono/pretty-json";
+import { requestId } from "hono/request-id";
+import { secureHeaders } from "hono/secure-headers";
+import { timeout } from "hono/timeout";
+import { timing } from "hono/timing";
+
+const TIMEOUT = 15_000; // 15 seconds
+const app = new OpenAPIHono<{ Variables: Variables }>();
+
+app.use(
+  "*",
+  // OpenTelemetry instrumentation
+  httpInstrumentationMiddleware({
+    serviceName: SERVICE_NAME,
+    serviceVersion: SERVICE_VERSION,
+  }),
+  // Context storage using AsyncLocalStorage
+  contextStorage(),
+  // HTTP logger
+  loggerMiddleware(),
+  // CORS
+  cors({
+    origin: [ENV.APP_URL],
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Authorization"],
+    exposeHeaders: ["Content-Length"],
+    credentials: true,
+  }),
+  // Request ID
+  requestId(),
+  // Auth context
+  authContextMiddleware(),
+  // Server timing
+  timing(),
+  // Timeout protection
+  timeout(TIMEOUT),
+  // Language detection
+  languageDetector({
+    supportedLanguages: ["en", "id"],
+    fallbackLanguage: "en",
+  }),
+  // CSRF protection
+  csrf({
+    origin: [ENV.APP_URL],
+  }),
+  // Security headers
+  secureHeaders(),
+  // Pretty JSON responses
+  prettyJSON()
+);
+```
+
+## Authentication Middleware
+
+Custom middleware for attaching user session to context (`src/routes/middlewares/auth.ts:7`):
+
+```typescript
+import type { MiddlewareHandler } from "hono";
+import { auth } from "@/auth/libs/index.js";
+
+/**
+ * A middleware to save the session and user in context
+ * (if authenticated, or `null` if not).
+ */
+export function authContextMiddleware(): MiddlewareHandler {
+  return async (c, next) => {
+    // Get the session from the request
+    const session = await auth.api.getSession({ 
+      headers: c.req.raw.headers 
+    });
+
+    // Set the user and session in the context
+    c.set("user", session ? session.user : null);
+    c.set("session", session ? session.session : null);
+
+    return next();
+  };
+}
+```
+
+Access authenticated user in routes:
+
+```typescript
+app.get("/protected", async (c) => {
+  const user = c.get("user");
+  const session = c.get("session");
+  
+  if (!user) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  
+  return c.json({ user });
+});
+```
+
+## Rate Limiting Middleware
+
+Implemented using `hono-rate-limiter` with PostgreSQL storage (`src/routes/middlewares/rate-limit/index.ts:15`):
+
+```typescript
+import { rateLimiter } from "hono-rate-limiter";
+import { DbStore } from "./store.js";
+
+const RATE_LIMIT_WINDOW_MS = 15_000; // 15 seconds
+const RATE_LIMIT_LIMIT = 15; // 10 req/s average
+
+/**
+ * Rate limit middleware using Drizzle PostgreSQL store
+ * with default rate limit of 10 req/s
+ */
+export const rateLimit = rateLimiter<{
+  Variables: Variables;
+}>({
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  limit: RATE_LIMIT_LIMIT,
+  standardHeaders: "draft-6", // RateLimit-* headers
+  keyGenerator: async (c) => {
+    // For authenticated users, use session id
+    const session = c.get("session");
+    if (session) {
+      return `session:${session.id}`;
+    }
+
+    // Get IP address from headers (most common)
+    const ipAddressFromHeaders = getClientIpAddress(c.req.raw.headers);
+
+    // Fallback to IP address from context (less common)
+    const ipAddressFromContext = await getClientIpAddressFromContext(c);
+
+    return `ip:${ipAddressFromHeaders || ipAddressFromContext || "anonymous"}`;
+  },
+  message: (c) => {
+    const session = c.get("session");
+
+    return session
+      ? "Rate limit exceeded for your account. Please try again later."
+      : "Rate limit exceeded. Please try again later.";
+  },
+  // Drizzle PostgreSQL store
+  store: new DbStore(),
+});
+```
+
+### Usage
+
+Apply to specific routes:
+
+```typescript
+import { rateLimit } from "@/routes/middlewares/rate-limit/index.js";
+
+app.post("/api/expensive", rateLimit, async (c) => {
+  // Rate-limited handler
+});
+```
+
+## Request/Response Logger
+
+Middleware for logging request and response bodies (`src/routes/middlewares/req-res-logger.ts:23`):
+
+```typescript
+import type { MiddlewareHandler } from "hono";
+
+/**
+ * A middleware to log the request and response body.
+ * Useful to know what's being sent and received.
+ * Attempts to prettify JSON bodies.
+ */
+export function reqResLogger(): MiddlewareHandler {
+  return async (c, next) => {
+    try {
+      // Log request body
+      const reqClone = c.req.raw.clone();
+      const reqBodyText = await reqClone.text();
+      if (reqBodyText) {
+        console.log("<-- [Incoming Body]", tryPrettifyJson(reqBodyText));
+        console.log("\n");
+      }
+    } catch (error) {
+      console.error("<-- [Error reading request body]", error);
+    }
+
+    await next();
+
+    // Log response body after handler execution
+    try {
+      if (c.res?.body) {
+        const resClone = c.res.clone();
+        const resBodyText = await resClone.text();
+        if (resBodyText) {
+          console.log("--> [Outgoing Body]", tryPrettifyJson(resBodyText));
+          console.log("\n");
+        }
+      }
+    } catch (error) {
+      console.error("--> [Error reading response body]", error);
+    }
+  };
+}
+```
+
+Uncomment in `src/app.ts:44` to enable:
+
+```typescript
+app.use("*", reqResLogger());
+```
+
+## Metrics Middleware (Deprecated)
+
+Custom OpenTelemetry metrics middleware (`src/routes/middlewares/metrics.ts:49`):
+
+```typescript
+import { metrics, ValueType } from "@opentelemetry/api";
+import type { MiddlewareHandler } from "hono";
+
+const meter = metrics.getMeter(SERVICE_NAME, SERVICE_VERSION);
+
+const responseTimeHistogram = meter.createHistogram(
+  "http_request_duration_metric",
+  {
+    description: "Duration of HTTP requests in milliseconds",
+    unit: "ms",
+    valueType: ValueType.INT,
+  }
+);
+
+const requestCounter = meter.createCounter("http_requests_total_metric", {
+  description: "Total number of HTTP requests",
+});
+
+/**
+ * @deprecated `@hono/otel` already provides metrics built-in
+ */
+export function metricsMiddleware(): MiddlewareHandler {
+  return async (c, next) => {
+    const startTime = performance.now();
+    const method = c.req.method;
+    const route = routePath(c) || c.req.path;
+
+    requestCounter.add(1, { method, route });
+
+    try {
+      await next();
+    } finally {
+      const responseTime = performance.now() - startTime;
+      const status = c.res.status.toString();
+      const statusClass = `${Math.floor(c.res.status / 100)}xx`;
+
+      responseTimeHistogram.record(responseTime, {
+        method,
+        route,
+        status_code: status,
+        status_class: statusClass,
+      });
+    }
+  };
+}
+```
+
+**Note**: This is deprecated in favor of `@hono/otel`'s built-in metrics.
+
+## OpenTelemetry Instrumentation
+
+The app uses `@hono/otel` for automatic instrumentation (`src/app.ts:35`):
+
+```typescript
+import { httpInstrumentationMiddleware } from "@hono/otel";
+
+app.use(
+  "*",
+  httpInstrumentationMiddleware({
+    serviceName: SERVICE_NAME,
+    serviceVersion: SERVICE_VERSION,
+  })
+);
+```
+
+This automatically:
+- Instruments the entire request-response lifecycle
+- Records metrics (request count, duration, status codes)
+- Creates traces with spans
+- Exports to OpenTelemetry collector
+
+See `src/instrumentation.ts` for OTLP exporter configuration.
+
+## Middleware Ordering
+
+Middleware order matters! The current order in `src/app.ts:29`:
+
+1. **httpInstrumentationMiddleware** - Trace entire lifecycle
+2. **contextStorage** - Enable `AsyncLocalStorage`
+3. **loggerMiddleware** - HTTP request logging
+4. **cors** - CORS headers
+5. **requestId** - Generate request ID
+6. **authContextMiddleware** - Attach user/session
+7. **timing** - Server-Timing headers
+8. **timeout** - Request timeout (15s)
+9. **languageDetector** - Language detection
+10. **csrf** - CSRF protection
+11. **secureHeaders** - Security headers
+12. **prettyJSON** - Format JSON responses

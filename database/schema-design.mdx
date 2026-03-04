@@ -1,0 +1,233 @@
+---
+title: Schema Design
+description: Database schema architecture, table definitions, and design patterns used in the BE Monorepo
+---
+
+The database schema is defined using Drizzle ORM's PostgreSQL schema builder. All schema definitions are located in `src/db/schema.ts`.
+
+## Schema Structure
+
+The schema is organized into logical sections:
+
+- **AUTH**: User authentication and session management tables
+- **RATE LIMIT**: API rate limiting storage
+- **COMMON**: Shared utilities like timestamps
+
+## Naming Conventions
+
+The project follows strict naming conventions:
+
+- **Tables**: `snake_case` naming enforced via Drizzle config
+- **Columns**: Automatically converted to `snake_case` (e.g., `createdAt` → `created_at`)
+- **Schema definition**: Use camelCase in TypeScript, which gets converted to snake_case in SQL
+
+```typescript
+const timestamps = {
+  createdAt: timestamp().defaultNow().notNull(),
+  updatedAt: timestamp().$onUpdate(() => new Date()),
+  deletedAt: timestamp(),
+};
+```
+
+This pattern is automatically converted to `created_at`, `updated_at`, and `deleted_at` in the database.
+
+## Authentication Tables
+
+### User Table
+
+The `user` table stores core user information:
+
+```typescript
+export const userTable = pgTable("user", {
+  id: text().primaryKey(),
+  name: text().notNull(),
+  email: text().notNull().unique(),
+  emailVerified: boolean().default(false).notNull(),
+  image: text(),
+  ...timestamps,
+});
+```
+
+**Key Features:**
+- Text-based primary key for flexibility
+- Unique email constraint
+- Email verification tracking
+- Optional profile image
+- Automatic timestamp management
+
+### Session Table
+
+The `session` table manages user authentication sessions:
+
+```typescript
+export const sessionTable = pgTable("session", {
+  id: text().primaryKey(),
+  expiresAt: timestamp().notNull(),
+  token: text().notNull().unique(),
+  ipAddress: text(),
+  userAgent: text(),
+  userId: text()
+    .notNull()
+    .references(() => userTable.id, { onDelete: "cascade" }),
+  ...timestamps,
+});
+```
+
+**Key Features:**
+- Unique session tokens
+- Expiration tracking
+- IP address and user agent logging
+- Cascade delete on user removal
+
+### Account Table
+
+The `account` table handles OAuth and authentication provider accounts:
+
+```typescript
+export const accountTable = pgTable("account", {
+  id: text().primaryKey(),
+  accountId: text().notNull(),
+  providerId: text().notNull(),
+  userId: text()
+    .notNull()
+    .references(() => userTable.id, { onDelete: "cascade" }),
+  accessToken: text(),
+  refreshToken: text(),
+  idToken: text(),
+  accessTokenExpiresAt: timestamp(),
+  refreshTokenExpiresAt: timestamp(),
+  scope: text(),
+  password: text(),
+  ...timestamps,
+});
+```
+
+**Key Features:**
+- Multi-provider support (OAuth, credentials)
+- Token management (access, refresh, ID tokens)
+- Token expiration tracking
+- Cascade delete on user removal
+
+### Verification Table
+
+The `verification` table stores email verification codes and other verification tokens:
+
+```typescript
+export const verificationTable = pgTable("verification", {
+  id: text().primaryKey(),
+  identifier: text().notNull(),
+  value: text().notNull(),
+  expiresAt: timestamp().notNull(),
+  ...timestamps,
+});
+```
+
+**Key Features:**
+- Generic verification storage
+- Expiration support
+- Flexible identifier system
+
+## Rate Limiting Table
+
+The `rate_limit` table stores API rate limiting counters:
+
+```typescript
+export const rateLimitTable = pgTable("rate_limit", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  key: text("key").notNull().unique(),
+  count: integer("count").default(0).notNull(),
+  lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+});
+```
+
+**Key Features:**
+- UUID primary key with auto-generation
+- Unique rate limit keys
+- Request counting
+- Last request timestamp tracking (bigint for precision)
+
+## Relationships and Foreign Keys
+
+The schema uses foreign key constraints to maintain referential integrity:
+
+### User Relationships
+
+```typescript
+// session → user
+userId: text()
+  .notNull()
+  .references(() => userTable.id, { onDelete: "cascade" })
+
+// account → user
+userId: text()
+  .notNull()
+  .references(() => userTable.id, { onDelete: "cascade" })
+```
+
+Both `session` and `account` tables use **cascade delete**, meaning:
+- When a user is deleted, all associated sessions are automatically removed
+- When a user is deleted, all associated accounts are automatically removed
+
+This ensures data consistency and prevents orphaned records.
+
+## Type Safety with Zod
+
+Each table exports a Zod schema for runtime validation:
+
+```typescript
+export const selectUserTableSchema = createSelectSchema(userTable);
+export type UserTable = z.infer<typeof selectUserTableSchema>;
+```
+
+This provides:
+- Type-safe database queries
+- Runtime validation
+- Automatic TypeScript types
+- Schema validation for API responses
+
+## Common Patterns
+
+### Timestamp Fields
+
+All major tables include standard timestamp fields:
+
+```typescript
+const timestamps = {
+  createdAt: timestamp().defaultNow().notNull(),    // Auto-set on insert
+  updatedAt: timestamp().$onUpdate(() => new Date()), // Auto-update on modification
+  deletedAt: timestamp(),                            // For soft deletes
+};
+```
+
+### Soft Deletes
+
+The schema supports soft deletes via the `deletedAt` field:
+- `null` = active record
+- `timestamp` = soft-deleted record
+
+This allows for data recovery and audit trails.
+
+### Primary Key Strategies
+
+- **Text IDs**: Used for auth tables (user, session, account) for flexibility with external auth providers
+- **UUID**: Used for rate limiting table with auto-generation
+
+## Schema Location
+
+All schema definitions are centralized in:
+
+```
+src/db/schema.ts
+```
+
+The schema is imported and used throughout the application:
+
+```typescript
+import * as schema from "./schema.js";
+
+export const db = drizzle({
+  client: dbPool,
+  schema,
+  casing: "snake_case",
+});
+```
